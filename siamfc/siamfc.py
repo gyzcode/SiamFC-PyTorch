@@ -20,6 +20,7 @@ from .heads import SiamFC
 from .losses import BalancedLoss
 from .datasets import Pair
 from .transforms import SiamFCTransforms
+from apex import amp
 
 
 __all__ = ['TrackerSiamFC']
@@ -69,6 +70,10 @@ class TrackerSiamFC(Tracker):
             lr=self.cfg.initial_lr,
             weight_decay=self.cfg.weight_decay,
             momentum=self.cfg.momentum)
+
+        # apex initialization
+        opt_level = 'O1'
+        self.net, self.optimizer = amp.initialize(self.net, self.optimizer, opt_level=opt_level)
         
         # setup lr scheduler
         gamma = np.power(
@@ -252,7 +257,9 @@ class TrackerSiamFC(Tracker):
             if backward:
                 # back propagation
                 self.optimizer.zero_grad()
-                loss.backward()
+                #loss.backward()
+                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
                 self.optimizer.step()
         
         return loss.item()
