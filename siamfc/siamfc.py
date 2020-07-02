@@ -20,7 +20,7 @@ from .heads import SiamFC
 from .losses import BalancedLoss
 from .datasets import Pair
 from .transforms import SiamFCTransforms
-from apex import amp
+#from apex import amp
 
 
 __all__ = ['TrackerSiamFC']
@@ -61,6 +61,10 @@ class TrackerSiamFC(Tracker):
                 net_path, map_location=lambda storage, loc: storage))
         self.net = self.net.to(self.device)
 
+        # convert to caffe model
+        # sm = torch.jit.script(self.net)
+        # sm.save("siamfc_model.pt")
+
         # setup criterion
         self.criterion = BalancedLoss()
 
@@ -72,8 +76,8 @@ class TrackerSiamFC(Tracker):
             momentum=self.cfg.momentum)
 
         # apex initialization
-        opt_level = 'O1'
-        self.net, self.optimizer = amp.initialize(self.net, self.optimizer, opt_level=opt_level)
+        # opt_level = 'O1'
+        # self.net, self.optimizer = amp.initialize(self.net, self.optimizer, opt_level=opt_level)
         
         # setup lr scheduler
         gamma = np.power(
@@ -257,9 +261,9 @@ class TrackerSiamFC(Tracker):
             if backward:
                 # back propagation
                 self.optimizer.zero_grad()
-                #loss.backward()
-                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                    scaled_loss.backward()
+                loss.backward()
+                # with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                #     scaled_loss.backward()
                 self.optimizer.step()
         
         return loss.item()
