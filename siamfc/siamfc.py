@@ -61,6 +61,19 @@ class TrackerSiamFC(Tracker):
                 net_path, map_location=lambda storage, loc: storage))
         self.net = self.net.to(self.device)
 
+
+
+        # convert to onnx model
+        dummy_input1 = torch.randn(1, 3, 127, 127, device='cuda')
+        dummy_input2 = torch.randn(1, 3, 255, 255, device='cuda')
+        input_names = [ "x" "z"]
+        output_names = [ "output1" ]
+        torch.onnx.export(self.net, (dummy_input1, dummy_input2), "siamfc.onnx", verbose=True, input_names=input_names, output_names=output_names)
+
+
+
+
+
         # convert to caffe model
         # sm = torch.jit.script(self.net)
         # sm.save("siamfc_model.pt")
