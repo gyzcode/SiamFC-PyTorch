@@ -10,7 +10,7 @@ from siamfc import TrackerSiamFC
 
 
 if __name__ == '__main__':
-    seq_dir = os.path.expanduser('c:/dataset/otb100/Crossing/')
+    seq_dir = os.path.expanduser('~/dataset/otb100/Crossing/')
     img_files = sorted(glob.glob(seq_dir + 'img/*.jpg'))
     anno = np.loadtxt(seq_dir + 'groundtruth_rect.txt', delimiter=',')
     
