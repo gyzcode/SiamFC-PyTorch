@@ -21,9 +21,71 @@ from .losses import BalancedLoss
 from .datasets import Pair
 from .transforms import SiamFCTransforms
 #from apex import amp
+import onnx
+import tensorrt as trt
+from torch.autograd import Variable
 
 
 __all__ = ['TrackerSiamFC']
+
+
+
+TRT_LOGGER = trt.Logger()  # This logger is required to build an engine
+
+
+def get_engine(max_batch_size=1, onnx_file_path="", engine_file_path="", \
+               fp16_mode=False, int8_mode=False, save_engine=False,
+               ):
+    """Attempts to load a serialized engine if available, otherwise builds a new TensorRT engine and saves it."""
+
+    def build_engine(max_batch_size, save_engine):
+        """Takes an ONNX file and creates a TensorRT engine to run inference with"""
+        with trt.Builder(TRT_LOGGER) as builder, \
+                builder.create_network() as network, \
+                trt.OnnxParser(network, TRT_LOGGER) as parser:
+
+            builder.max_workspace_size = 1 << 30  # Your workspace size
+            builder.max_batch_size = max_batch_size
+            # pdb.set_trace()
+            builder.fp16_mode = fp16_mode  # Default: False
+            builder.int8_mode = int8_mode  # Default: False
+            if int8_mode:
+                # To be updated
+                raise NotImplementedError
+
+            # Parse model file
+            if not os.path.exists(onnx_file_path):
+                quit('ONNX file {} not found'.format(onnx_file_path))
+
+            print('Loading ONNX file from path {}...'.format(onnx_file_path))
+            with open(onnx_file_path, 'rb') as model:
+                print('Beginning ONNX file parsing')
+                parser.parse(model.read())
+
+            print('Completed parsing of ONNX file')
+            print('Building an engine from file {}; this may take a while...'.format(onnx_file_path))
+
+            engine = builder.build_cuda_engine(network)
+            print("Completed creating Engine")
+
+            if save_engine:
+                with open(engine_file_path, "wb") as f:
+                    f.write(engine.serialize())
+            return engine
+
+    if os.path.exists(engine_file_path):
+        # If a serialized engine exists, load it instead of building a new one.
+        print("Reading engine from file {}".format(engine_file_path))
+        with open(engine_file_path, "rb") as f, trt.Runtime(TRT_LOGGER) as runtime:
+            return runtime.deserialize_cuda_engine(f.read())
+    else:
+        return build_engine(max_batch_size, save_engine)
+
+
+
+
+
+
 
 
 class Net(nn.Module):
@@ -64,11 +126,33 @@ class TrackerSiamFC(Tracker):
 
 
         # convert to onnx model
-        #dummy_input1 = torch.randn(1, 3, 127, 127, device='cuda')
-        #dummy_input2 = torch.randn(1, 3, 255, 255, device='cuda')
-        #input_names = [ "x" "z"]
-        #output_names = [ "output1" ]
-        #torch.onnx.export(self.net, (dummy_input1, dummy_input2), "siamfc.onnx", verbose=True, input_names=input_names, output_names=output_names)
+        dummy_input1 = Variable(torch.randn(1, 3, 127, 127)).cuda()
+        dummy_input2 = Variable(torch.randn(3, 3, 255, 255)).cuda()
+        input_names = ['input']
+        output_names = ['output']
+        torch.onnx.export(self.net.backbone, dummy_input1, 'pretrained/siamfc_backbone1.onnx', verbose=True, input_names=input_names, output_names=output_names)
+        torch.onnx.export(self.net.backbone, dummy_input2, 'pretrained/siamfc_backbone2.onnx', verbose=True, input_names=input_names, output_names=output_names)
+
+        # # check onnx model
+        # test = onnx.load(net_path_onnx)
+        # onnx.checker.check_model(test)
+        # print("==> Passed")
+
+        # Build an engine
+        max_batch_size = 1
+        fp16_mode = False
+        int8_mode = False
+        trt_engine_path = './model1_fp16_{}_int8_{}.trt'.format(fp16_mode, int8_mode)
+        engine1 = get_engine(max_batch_size, 'pretrained/siamfc_backbone1.onnx', trt_engine_path, fp16_mode, int8_mode)
+        max_batch_size = 3
+        trt_engine_path = './model2_fp16_{}_int8_{}.trt'.format(fp16_mode, int8_mode)
+        engine2 = get_engine(max_batch_size, 'pretrained/siamfc_backbone2.onnx', trt_engine_path, fp16_mode, int8_mode)
+
+
+        # Create the context for this engine
+        context1 = engine1.create_execution_context()
+        context2 = engine2.create_execution_context()
+
 
 
 
