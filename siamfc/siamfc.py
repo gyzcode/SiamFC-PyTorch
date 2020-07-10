@@ -24,6 +24,8 @@ from .transforms import SiamFCTransforms
 import onnx
 import tensorrt as trt
 from torch.autograd import Variable
+import pycuda.autoinit
+import pycuda.driver as cuda
 
 
 __all__ = ['TrackerSiamFC']
@@ -47,8 +49,8 @@ def get_engine(max_batch_size=1, onnx_file_path="", engine_file_path="", \
             builder.max_workspace_size = 1 << 30  # Your workspace size
             builder.max_batch_size = max_batch_size
             # pdb.set_trace()
-            builder.fp16_mode = fp16_mode  # Default: False
-            builder.int8_mode = int8_mode  # Default: False
+            builder.fp16_mode = fp16_mode and builder.platform_has_fast_fp16
+            builder.int8_mode = int8_mode and builder.platform_has_fast_int8
             if int8_mode:
                 # To be updated
                 raise NotImplementedError
@@ -82,7 +84,57 @@ def get_engine(max_batch_size=1, onnx_file_path="", engine_file_path="", \
         return build_engine(max_batch_size, save_engine)
 
 
+def do_inference(context, bindings, inputs, outputs, stream, batch_size=1):
+    # Transfer data from CPU to the GPU.
+    [cuda.memcpy_htod_async(inp.device, inp.host, stream) for inp in inputs]
+    # Run inference.
+    context.execute_async(batch_size=batch_size, bindings=bindings, stream_handle=stream.handle)
+    # Transfer predictions back from the GPU.
+    [cuda.memcpy_dtoh_async(out.host, out.device, stream) for out in outputs]
+    # Synchronize the stream
+    stream.synchronize()
+    # Return only the host outputs.
+    return [out.host for out in outputs]
 
+
+def postprocess_the_outputs(h_outputs, shape_of_output):
+    h_outputs = h_outputs.reshape(*shape_of_output)
+    return h_outputs    
+
+
+class HostDeviceMem(object):
+    def __init__(self, host_mem, device_mem):
+        """Within this context, host_mom means the cpu memory and device means the GPU memory
+        """
+        self.host = host_mem
+        self.device = device_mem
+
+    def __str__(self):
+        return "Host:\n" + str(self.host) + "\nDevice:\n" + str(self.device)
+
+    def __repr__(self):
+        return self.__str__()
+
+
+def allocate_buffers(engine):
+    inputs = []
+    outputs = []
+    bindings = []
+    stream = cuda.Stream()
+    for binding in engine:
+        size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
+        dtype = trt.nptype(engine.get_binding_dtype(binding))
+        # Allocate host and device buffers
+        host_mem = cuda.pagelocked_empty(size, dtype)
+        device_mem = cuda.mem_alloc(host_mem.nbytes)
+        # Append the device buffer to device bindings.
+        bindings.append(int(device_mem))
+        # Append to the appropriate list.
+        if engine.binding_is_input(binding):
+            inputs.append(HostDeviceMem(host_mem, device_mem))
+        else:
+            outputs.append(HostDeviceMem(host_mem, device_mem))
+    return inputs, outputs, bindings, stream
 
 
 
@@ -124,34 +176,33 @@ class TrackerSiamFC(Tracker):
         self.net = self.net.to(self.device)
 
 
-
         # convert to onnx model
-        dummy_input1 = Variable(torch.randn(1, 3, 127, 127)).cuda()
-        dummy_input2 = Variable(torch.randn(3, 3, 255, 255)).cuda()
+        onnx_path = net_path.replace('pth', 'onnx')
+        #if not os.path.exists(onnx_path):
+        dummy_input = Variable(torch.randn(3, 3, 255, 255)).cuda()
         input_names = ['input']
         output_names = ['output']
-        torch.onnx.export(self.net.backbone, dummy_input1, 'pretrained/siamfc_backbone1.onnx', verbose=True, input_names=input_names, output_names=output_names)
-        torch.onnx.export(self.net.backbone, dummy_input2, 'pretrained/siamfc_backbone2.onnx', verbose=True, input_names=input_names, output_names=output_names)
+        torch.onnx.export(self.net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names)
 
         # # check onnx model
-        # test = onnx.load(net_path_onnx)
+        # test = onnx.load(onnx_path)
         # onnx.checker.check_model(test)
         # print("==> Passed")
 
         # Build an engine
-        max_batch_size = 1
-        fp16_mode = False
+        self.max_batch_size = 3
+        fp16_mode = True
         int8_mode = False
-        trt_engine_path = './model1_fp16_{}_int8_{}.trt'.format(fp16_mode, int8_mode)
-        engine1 = get_engine(max_batch_size, 'pretrained/siamfc_backbone1.onnx', trt_engine_path, fp16_mode, int8_mode)
-        max_batch_size = 3
-        trt_engine_path = './model2_fp16_{}_int8_{}.trt'.format(fp16_mode, int8_mode)
-        engine2 = get_engine(max_batch_size, 'pretrained/siamfc_backbone2.onnx', trt_engine_path, fp16_mode, int8_mode)
+        trt_engine_path =  net_path.replace('pth', 'trt')
+        engine = get_engine(self.max_batch_size, onnx_path, trt_engine_path, fp16_mode, int8_mode)
 
 
         # Create the context for this engine
-        context1 = engine1.create_execution_context()
-        context2 = engine2.create_execution_context()
+        self.context = engine.create_execution_context()
+        # Allocate buffers for input and output
+        self.inputs, self.outputs, self.bindings, self.stream = allocate_buffers(engine) # input, output: host # bindings
+
+
 
 
 
@@ -268,11 +319,35 @@ class TrackerSiamFC(Tracker):
             out_size=self.cfg.instance_sz,
             border_value=self.avg_color) for f in self.scale_factors]
         x = np.stack(x, axis=0)
-        x = torch.from_numpy(x).to(
-            self.device).permute(0, 3, 1, 2).float()
+
+
+
+
+
+        # Do inference
+        shape_of_output = (self.max_batch_size, 256, 22, 22)
+        # Load data to the buffer
+        self.inputs[0].host = np.transpose(x, [0, 3, 1, 2]).astype(np.float32).reshape(-1)
+
+        trt_outputs = do_inference(self.context, bindings=self.bindings, inputs=self.inputs, outputs=self.outputs, stream=self.stream, batch_size=3) # numpy data
+        feat = postprocess_the_outputs(trt_outputs[0], shape_of_output)
+        x = torch.from_numpy(feat).to(self.device)
+
+
+
+
+
+        # x = torch.from_numpy(x).to(
+        #     self.device).permute(0, 3, 1, 2).float()
         
-        # responses
-        x = self.net.backbone(x)
+        # # responses
+        # x = self.net.backbone(x)
+
+
+        # dtest = x.cpu().numpy()
+
+
+
         responses = self.net.head(self.kernel, x)
         responses = responses.squeeze(1).cpu().numpy()
 
