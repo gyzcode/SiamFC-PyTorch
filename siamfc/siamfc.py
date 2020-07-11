@@ -142,7 +142,8 @@ def allocate_buffers(engine):
     bindings = []
     stream = cuda.Stream()
     for binding in engine:
-        size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
+        #size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
+        size = trt.volume(engine.get_binding_shape(binding)) # fit tensorrt7
         dtype = trt.nptype(engine.get_binding_dtype(binding))
         # Allocate host and device buffers
         host_mem = cuda.pagelocked_empty(size, dtype)
@@ -155,8 +156,6 @@ def allocate_buffers(engine):
         else:
             outputs.append(HostDeviceMem(host_mem, device_mem))
     return inputs, outputs, bindings, stream
-
-
 
 
 
