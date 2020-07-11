@@ -42,27 +42,47 @@ def get_engine(max_batch_size=1, onnx_file_path="", engine_file_path="", \
 
     def build_engine(max_batch_size, save_engine):
         """Takes an ONNX file and creates a TensorRT engine to run inference with"""
+        EXPLICIT_BATCH = 1 << (int)(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
         with trt.Builder(TRT_LOGGER) as builder, \
-                builder.create_network() as network, \
+                builder.create_network(EXPLICIT_BATCH) as network, \
                 trt.OnnxParser(network, TRT_LOGGER) as parser:
-
-            builder.max_workspace_size = 1 << 30  # Your workspace size
+            builder.max_workspace_size = 1 << 28
             builder.max_batch_size = max_batch_size
-            # pdb.set_trace()
             builder.fp16_mode = fp16_mode and builder.platform_has_fast_fp16
             builder.int8_mode = int8_mode and builder.platform_has_fast_int8
             if int8_mode:
                 # To be updated
                 raise NotImplementedError
-
-            # Parse model file
-            if not os.path.exists(onnx_file_path):
-                quit('ONNX file {} not found'.format(onnx_file_path))
-
-            print('Loading ONNX file from path {}...'.format(onnx_file_path))
             with open(onnx_file_path, 'rb') as model:
-                print('Beginning ONNX file parsing')
-                parser.parse(model.read())
+                if not parser.parse(model.read()):
+                    for error in range(parser.num_errors):
+                        print(parser.get_error(error))
+
+
+            print(network.num_layers)
+
+        
+        # with trt.Builder(TRT_LOGGER) as builder, \
+        #         builder.create_network() as network, \
+        #         trt.OnnxParser(network, TRT_LOGGER) as parser:
+
+        #     builder.max_workspace_size = 1 << 28  # Your workspace size
+        #     builder.max_batch_size = max_batch_size
+        #     # pdb.set_trace()
+        #     builder.fp16_mode = fp16_mode and builder.platform_has_fast_fp16
+        #     builder.int8_mode = int8_mode and builder.platform_has_fast_int8
+        #     if int8_mode:
+        #         # To be updated
+        #         raise NotImplementedError
+
+        #     # Parse model file
+        #     if not os.path.exists(onnx_file_path):
+        #         quit('ONNX file {} not found'.format(onnx_file_path))
+
+        #     print('Loading ONNX file from path {}...'.format(onnx_file_path))
+        #     with open(onnx_file_path, 'rb') as model:
+        #         print('Beginning ONNX file parsing')
+        #         parser.parse(model.read())
 
             print('Completed parsing of ONNX file')
             print('Building an engine from file {}; this may take a while...'.format(onnx_file_path))
@@ -178,11 +198,12 @@ class TrackerSiamFC(Tracker):
 
         # convert to onnx model
         onnx_path = net_path.replace('pth', 'onnx')
-        #if not os.path.exists(onnx_path):
-        dummy_input = Variable(torch.randn(3, 3, 255, 255)).cuda()
-        input_names = ['input']
-        output_names = ['output']
-        torch.onnx.export(self.net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names)
+        if not os.path.exists(onnx_path):
+            dummy_input = Variable(torch.randn(3, 3, 255, 255)).cuda()
+            #dummy_input = torch.randn(3, 3, 255, 255).to(self.device)
+            input_names = ['input']
+            output_names = ['output']
+            torch.onnx.export(self.net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names)
 
         # # check onnx model
         # test = onnx.load(onnx_path)
