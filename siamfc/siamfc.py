@@ -58,35 +58,8 @@ def get_engine(max_batch_size=1, onnx_file_path="", engine_file_path="", \
                     for error in range(parser.num_errors):
                         print(parser.get_error(error))
 
-
-            print(network.num_layers)
-
-        
-        # with trt.Builder(TRT_LOGGER) as builder, \
-        #         builder.create_network() as network, \
-        #         trt.OnnxParser(network, TRT_LOGGER) as parser:
-
-        #     builder.max_workspace_size = 1 << 28  # Your workspace size
-        #     builder.max_batch_size = max_batch_size
-        #     # pdb.set_trace()
-        #     builder.fp16_mode = fp16_mode and builder.platform_has_fast_fp16
-        #     builder.int8_mode = int8_mode and builder.platform_has_fast_int8
-        #     if int8_mode:
-        #         # To be updated
-        #         raise NotImplementedError
-
-        #     # Parse model file
-        #     if not os.path.exists(onnx_file_path):
-        #         quit('ONNX file {} not found'.format(onnx_file_path))
-
-        #     print('Loading ONNX file from path {}...'.format(onnx_file_path))
-        #     with open(onnx_file_path, 'rb') as model:
-        #         print('Beginning ONNX file parsing')
-        #         parser.parse(model.read())
-
             print('Completed parsing of ONNX file')
             print('Building an engine from file {}; this may take a while...'.format(onnx_file_path))
-
             engine = builder.build_cuda_engine(network)
             print("Completed creating Engine")
 
@@ -198,11 +171,22 @@ class TrackerSiamFC(Tracker):
         # convert to onnx model
         onnx_path = net_path.replace('pth', 'onnx')
         if not os.path.exists(onnx_path):
-            dummy_input = Variable(torch.randn(3, 3, 255, 255)).cuda()
-            #dummy_input = torch.randn(3, 3, 255, 255).to(self.device)
+            # # fixed input model
+            # dummy_input = torch.randn(3, 3, 255, 255).to(self.device)
+            # input_names = ['input']
+            # output_names = ['output']
+            # torch.onnx.export(self.net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names)
+
+            # dynamic input model
+            batch = 3
+            width = 255
+            height = 255
+            dummy_input = torch.randn(batch, 3, width, height).to(self.device)
             input_names = ['input']
             output_names = ['output']
-            torch.onnx.export(self.net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names)
+            dynamic_axes = {'input':{0:'batch', 2:'width', 3:'height'}, 'output':{0:'batch', 2:'width', 3:'height'}} #adding names for better debugging
+            torch.onnx.export(self.net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names, dynamic_axes=dynamic_axes)
+
 
         # # check onnx model
         # test = onnx.load(onnx_path)
@@ -213,20 +197,15 @@ class TrackerSiamFC(Tracker):
         self.max_batch_size = 3
         fp16_mode = True
         int8_mode = False
-        trt_engine_path =  net_path.replace('pth', 'trt')
-        engine = get_engine(self.max_batch_size, onnx_path, trt_engine_path, fp16_mode, int8_mode)
+        #trt_engine_path =  net_path.replace('pth', 'trt')
+        trt_engine_path = 'pretrained/siamfc_alexnet_e50_fixed.trt'
+        engine = get_engine(self.max_batch_size, onnx_path, trt_engine_path, fp16_mode, int8_mode, True)
 
-
-        # Create the context for this engine
-        self.context = engine.create_execution_context()
         # Allocate buffers for input and output
         self.inputs, self.outputs, self.bindings, self.stream = allocate_buffers(engine) # input, output: host # bindings
 
-
-
-
-
-
+        # Create the context for this engine
+        self.context = engine.create_execution_context()
 
 
         # convert to caffe model
@@ -322,6 +301,19 @@ class TrackerSiamFC(Tracker):
             img, self.center, self.z_sz,
             out_size=self.cfg.exemplar_sz,
             border_value=self.avg_color)
+
+
+
+        # # Tensorrt inferrence
+        # # Load data to the buffer
+        # self.inputs[0].host = np.expand_dims(np.transpose(z, [2, 0, 1]), axis=0).astype(np.float32).reshape(-1)
+        # # Do inference
+        # shape_of_output = (1, 256, 6, 6)
+        # trt_outputs = do_inference(self.context, bindings=self.bindings, inputs=self.inputs, outputs=self.outputs, stream=self.stream) # numpy data
+        # feat = postprocess_the_outputs(trt_outputs[0], shape_of_output)
+        # #self.kernel = torch.from_numpy(feat).to(self.device)
+
+
         
         # exemplar features
         z = torch.from_numpy(z).to(
@@ -343,12 +335,11 @@ class TrackerSiamFC(Tracker):
 
 
 
-
-        # Do inference
-        shape_of_output = (self.max_batch_size, 256, 22, 22)
+        # Tensorrt inferrence
         # Load data to the buffer
         self.inputs[0].host = np.transpose(x, [0, 3, 1, 2]).astype(np.float32).reshape(-1)
-
+        # Do inference
+        shape_of_output = (self.max_batch_size, 256, 22, 22)
         trt_outputs = do_inference(self.context, bindings=self.bindings, inputs=self.inputs, outputs=self.outputs, stream=self.stream, batch_size=3) # numpy data
         feat = postprocess_the_outputs(trt_outputs[0], shape_of_output)
         x = torch.from_numpy(feat).to(self.device)
