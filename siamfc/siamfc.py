@@ -109,15 +109,31 @@ class HostDeviceMem(object):
         return self.__str__()
 
 
-def allocate_buffers(engine):
+def allocate_buffers(engine, context):
     inputs = []
     outputs = []
     bindings = []
     stream = cuda.Stream()
     for binding in engine:
         #size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
-        size = trt.volume(engine.get_binding_shape(binding)) # fit tensorrt7
+        #size = trt.volume(engine.get_binding_shape(binding)) # fit tensorrt7
+
+        # shape = engine.get_binding_shape(binding)
+        # if shape[0]==-1:
+        #     if binding=='input':
+        #         # size = trt.volume((1, 3, 127, 127))
+        #         size = trt.volume((3, 3, 255, 255))
+        #     else:
+        #         # size = trt.volume((1, 256, 6, 6))
+        #         size = trt.volume((3, 256, 22, 22))
+
+        if binding=='input':
+            shape = context.get_binding_shape(0)
+        else:
+            shape = context.get_binding_shape(1)
+        size = trt.volume(shape)
         dtype = trt.nptype(engine.get_binding_dtype(binding))
+
         # Allocate host and device buffers
         host_mem = cuda.pagelocked_empty(size, dtype)
         device_mem = cuda.mem_alloc(host_mem.nbytes)
@@ -178,14 +194,14 @@ class TrackerSiamFC(Tracker):
             # torch.onnx.export(self.net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names)
 
             # dynamic input model
-            batch = 3
-            width = 255
-            height = 255
+            batch = 1
+            width = 127
+            height = 127
             dummy_input = torch.randn(batch, 3, width, height).to(self.device)
             input_names = ['input']
             output_names = ['output']
-            dynamic_axes = {'input':{0:'batch', 2:'width', 3:'height'}, 'output':{0:'batch', 2:'width', 3:'height'}} #adding names for better debugging
-            torch.onnx.export(self.net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names, dynamic_axes=dynamic_axes)
+            dynamic_axes = {'input':{0:'batch_size', 2:'width', 3:'height'}, 'output':{0:'batch_size', 2:'width', 3:'height'}} #adding names for better debugging
+            torch.onnx.export(self.net.backbone, dummy_input, onnx_path, verbose=True, opset_version=11, input_names=input_names, output_names=output_names, dynamic_axes=dynamic_axes)
 
 
         # # check onnx model
@@ -198,14 +214,19 @@ class TrackerSiamFC(Tracker):
         fp16_mode = True
         int8_mode = False
         #trt_engine_path =  net_path.replace('pth', 'trt')
-        trt_engine_path = 'pretrained/siamfc_alexnet_e50_fixed.trt'
-        engine = get_engine(self.max_batch_size, onnx_path, trt_engine_path, fp16_mode, int8_mode, True)
-
-        # Allocate buffers for input and output
-        self.inputs, self.outputs, self.bindings, self.stream = allocate_buffers(engine) # input, output: host # bindings
+        trt_engine_path = 'pretrained/siamfc_alexnet_e50_dynamic.engine'
+        self.engine = get_engine(self.max_batch_size, onnx_path, trt_engine_path, fp16_mode, int8_mode, True)
 
         # Create the context for this engine
-        self.context = engine.create_execution_context()
+        self.context = self.engine.create_execution_context()
+
+        self.profile_shapes = self.engine.get_profile_shape(0, 0)
+        self.context.set_binding_shape(0, self.profile_shapes[0])
+        
+        # Allocate buffers for input and output
+        self.inputs, self.outputs, self.bindings, self.stream = allocate_buffers(self.engine, self.context) # input, output: host # bindings
+
+
 
 
         # convert to caffe model
@@ -304,21 +325,29 @@ class TrackerSiamFC(Tracker):
 
 
 
-        # # Tensorrt inferrence
-        # # Load data to the buffer
-        # self.inputs[0].host = np.expand_dims(np.transpose(z, [2, 0, 1]), axis=0).astype(np.float32).reshape(-1)
-        # # Do inference
-        # shape_of_output = (1, 256, 6, 6)
-        # trt_outputs = do_inference(self.context, bindings=self.bindings, inputs=self.inputs, outputs=self.outputs, stream=self.stream) # numpy data
-        # feat = postprocess_the_outputs(trt_outputs[0], shape_of_output)
-        # #self.kernel = torch.from_numpy(feat).to(self.device)
+        # Tensorrt inferrence
+        # Load data to the buffer
+        self.inputs[0].host = np.expand_dims(np.transpose(z, [2, 0, 1]), axis=0).astype(np.float32).reshape(-1)
+        # Do inference
+        shape_of_output = (1, 256, 6, 6)
+        trt_outputs = do_inference(self.context, bindings=self.bindings, inputs=self.inputs, outputs=self.outputs, stream=self.stream) # numpy data
+        feat = postprocess_the_outputs(trt_outputs[0], shape_of_output)
+        self.kernel = torch.from_numpy(feat).to(self.device)
 
 
         
-        # exemplar features
-        z = torch.from_numpy(z).to(
-            self.device).permute(2, 0, 1).unsqueeze(0).float()
-        self.kernel = self.net.backbone(z)
+        # # exemplar features
+        # z = torch.from_numpy(z).to(
+        #     self.device).permute(2, 0, 1).unsqueeze(0).float()
+        # self.kernel = self.net.backbone(z)
+
+
+        self.context.set_binding_shape(0, self.profile_shapes[1])
+        
+        # Allocate buffers for input and output
+        self.inputs, self.outputs, self.bindings, self.stream = allocate_buffers(self.engine, self.context) # input, output: host # bindings
+
+
     
     @torch.no_grad()
     def update(self, img):
@@ -339,8 +368,8 @@ class TrackerSiamFC(Tracker):
         # Load data to the buffer
         self.inputs[0].host = np.transpose(x, [0, 3, 1, 2]).astype(np.float32).reshape(-1)
         # Do inference
-        shape_of_output = (self.max_batch_size, 256, 22, 22)
-        trt_outputs = do_inference(self.context, bindings=self.bindings, inputs=self.inputs, outputs=self.outputs, stream=self.stream, batch_size=3) # numpy data
+        shape_of_output = (3, 256, 22, 22)
+        trt_outputs = do_inference(self.context, bindings=self.bindings, inputs=self.inputs, outputs=self.outputs, stream=self.stream) # numpy data
         feat = postprocess_the_outputs(trt_outputs[0], shape_of_output)
         x = torch.from_numpy(feat).to(self.device)
 
@@ -350,11 +379,8 @@ class TrackerSiamFC(Tracker):
 
         # x = torch.from_numpy(x).to(
         #     self.device).permute(0, 3, 1, 2).float()
-        
         # # responses
         # x = self.net.backbone(x)
-
-
         # dtest = x.cpu().numpy()
 
 
