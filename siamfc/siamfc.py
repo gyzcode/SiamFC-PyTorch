@@ -113,7 +113,6 @@ def allocate_buffers(engine, context):
     inputs = []
     outputs = []
     bindings = []
-    stream = cuda.Stream()
     for binding in engine:
         #size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
         #size = trt.volume(engine.get_binding_shape(binding)) # fit tensorrt7
@@ -144,7 +143,7 @@ def allocate_buffers(engine, context):
             inputs.append(HostDeviceMem(host_mem, device_mem))
         else:
             outputs.append(HostDeviceMem(host_mem, device_mem))
-    return inputs, outputs, bindings, stream
+    return inputs, outputs, bindings
 
 
 
@@ -217,6 +216,7 @@ class TrackerSiamFC(Tracker):
         trt_engine_path = 'pretrained/siamfc_alexnet_e50_dynamic.engine'
         self.engine = get_engine(self.max_batch_size, onnx_path, trt_engine_path, fp16_mode, int8_mode, True)
 
+        self.stream = cuda.Stream()
         # Create the context for this engine
         self.context = self.engine.create_execution_context()
         self.profile_shapes = self.engine.get_profile_shape(0, 0)
@@ -321,7 +321,7 @@ class TrackerSiamFC(Tracker):
 
         # Allocate buffers for input and output
         self.context.set_binding_shape(0, self.profile_shapes[0])
-        self.inputs, self.outputs, self.bindings, self.stream = allocate_buffers(self.engine, self.context) # input, output: host # bindings
+        self.inputs, self.outputs, self.bindings = allocate_buffers(self.engine, self.context) # input, output: host # bindings
 
         # Tensorrt inferrence
         # Load data to the buffer
@@ -342,7 +342,7 @@ class TrackerSiamFC(Tracker):
 
         # Allocate buffers for input and output
         self.context.set_binding_shape(0, self.profile_shapes[1])
-        self.inputs, self.outputs, self.bindings, self.stream = allocate_buffers(self.engine, self.context) # input, output: host # bindings
+        self.inputs, self.outputs, self.bindings = allocate_buffers(self.engine, self.context) # input, output: host # bindings
 
 
     
