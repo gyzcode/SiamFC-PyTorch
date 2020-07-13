@@ -219,12 +219,7 @@ class TrackerSiamFC(Tracker):
 
         # Create the context for this engine
         self.context = self.engine.create_execution_context()
-
         self.profile_shapes = self.engine.get_profile_shape(0, 0)
-        self.context.set_binding_shape(0, self.profile_shapes[0])
-        
-        # Allocate buffers for input and output
-        self.inputs, self.outputs, self.bindings, self.stream = allocate_buffers(self.engine, self.context) # input, output: host # bindings
 
 
 
@@ -324,6 +319,9 @@ class TrackerSiamFC(Tracker):
             border_value=self.avg_color)
 
 
+        # Allocate buffers for input and output
+        self.context.set_binding_shape(0, self.profile_shapes[0])
+        self.inputs, self.outputs, self.bindings, self.stream = allocate_buffers(self.engine, self.context) # input, output: host # bindings
 
         # Tensorrt inferrence
         # Load data to the buffer
@@ -342,9 +340,8 @@ class TrackerSiamFC(Tracker):
         # self.kernel = self.net.backbone(z)
 
 
-        self.context.set_binding_shape(0, self.profile_shapes[1])
-        
         # Allocate buffers for input and output
+        self.context.set_binding_shape(0, self.profile_shapes[1])
         self.inputs, self.outputs, self.bindings, self.stream = allocate_buffers(self.engine, self.context) # input, output: host # bindings
 
 
