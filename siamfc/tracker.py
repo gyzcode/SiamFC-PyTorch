@@ -38,6 +38,7 @@ def allocate_buffers(engine, context):
             shape = context.get_binding_shape(0)
         else:
             shape = context.get_binding_shape(1)
+            shape_of_output = shape
         size = trt.volume(shape)
         dtype = trt.nptype(engine.get_binding_dtype(binding))
 
@@ -52,7 +53,7 @@ def allocate_buffers(engine, context):
             inputs.append(HostDeviceMem(host_mem, device_mem))
         else:
             outputs.append(HostDeviceMem(host_mem, device_mem))
-    return inputs, outputs, bindings
+    return inputs, outputs, bindings, shape_of_output
 
 
 def do_inference(context, bindings, inputs, outputs, stream, batch_size=1):
@@ -181,20 +182,19 @@ class TrackerSiamFC1(Tracker):
 
         # Allocate buffers for input and output
         self.context.set_binding_shape(0, self.profile_shapes[0])
-        self.inputs, self.outputs, self.bindings = allocate_buffers(self.engine, self.context) # input, output: host # bindings
+        self.inputs, self.outputs, self.bindings, self.shape_of_output = allocate_buffers(self.engine, self.context) # input, output: host # bindings
 
         # Tensorrt inferrence
         # Load data to the buffer
         self.inputs[0].host = np.expand_dims(np.transpose(z, [2, 0, 1]), axis=0).astype(np.float32).reshape(-1)
         # Do inference
-        shape_of_output = (1, 256, 6, 6)
         trt_outputs = do_inference(self.context, bindings=self.bindings, inputs=self.inputs, outputs=self.outputs, stream=self.stream) # numpy data
-        feat = postprocess_the_outputs(trt_outputs[0], shape_of_output)
+        feat = postprocess_the_outputs(trt_outputs[0], self.shape_of_output)
         self.kernel = torch.from_numpy(feat).to(self.device)
 
         # Allocate buffers for input and output
         self.context.set_binding_shape(0, self.profile_shapes[1])
-        self.inputs, self.outputs, self.bindings = allocate_buffers(self.engine, self.context) # input, output: host # bindings
+        self.inputs, self.outputs, self.bindings, self.shape_of_output = allocate_buffers(self.engine, self.context) # input, output: host # bindings
 
     
     @torch.no_grad()
@@ -213,9 +213,8 @@ class TrackerSiamFC1(Tracker):
         # Load data to the buffer
         self.inputs[0].host = np.transpose(x, [0, 3, 1, 2]).astype(np.float32).reshape(-1)
         # Do inference
-        shape_of_output = (3, 256, 22, 22)
         trt_outputs = do_inference(self.context, bindings=self.bindings, inputs=self.inputs, outputs=self.outputs, stream=self.stream) # numpy data
-        feat = postprocess_the_outputs(trt_outputs[0], shape_of_output)
+        feat = postprocess_the_outputs(trt_outputs[0], self.shape_of_output)
         x = torch.from_numpy(feat).to(self.device)
 
         responses = self.head(self.kernel, x)
