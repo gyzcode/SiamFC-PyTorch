@@ -21,130 +21,8 @@ from .losses import BalancedLoss
 from .datasets import Pair
 from .transforms import SiamFCTransforms
 #from apex import amp
-import onnx
-import tensorrt as trt
-from torch.autograd import Variable
-import pycuda.autoinit
-import pycuda.driver as cuda
-
 
 __all__ = ['TrackerSiamFC']
-
-
-
-TRT_LOGGER = trt.Logger()  # This logger is required to build an engine
-
-
-def get_engine(max_batch_size=1, onnx_file_path="", engine_file_path="", \
-               fp16_mode=False, int8_mode=False, save_engine=False,
-               ):
-    """Attempts to load a serialized engine if available, otherwise builds a new TensorRT engine and saves it."""
-
-    def build_engine(max_batch_size, save_engine):
-        """Takes an ONNX file and creates a TensorRT engine to run inference with"""
-        EXPLICIT_BATCH = 1 << (int)(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-        with trt.Builder(TRT_LOGGER) as builder, \
-                builder.create_network(EXPLICIT_BATCH) as network, \
-                trt.OnnxParser(network, TRT_LOGGER) as parser:
-            builder.max_workspace_size = 1 << 28
-            builder.max_batch_size = max_batch_size
-            builder.fp16_mode = fp16_mode and builder.platform_has_fast_fp16
-            builder.int8_mode = int8_mode and builder.platform_has_fast_int8
-            if int8_mode:
-                # To be updated
-                raise NotImplementedError
-            with open(onnx_file_path, 'rb') as model:
-                if not parser.parse(model.read()):
-                    for error in range(parser.num_errors):
-                        print(parser.get_error(error))
-
-            print('Completed parsing of ONNX file')
-            print('Building an engine from file {}; this may take a while...'.format(onnx_file_path))
-            engine = builder.build_cuda_engine(network)
-            print("Completed creating Engine")
-
-            if save_engine:
-                with open(engine_file_path, "wb") as f:
-                    f.write(engine.serialize())
-            return engine
-
-    if os.path.exists(engine_file_path):
-        # If a serialized engine exists, load it instead of building a new one.
-        print("Reading engine from file {}".format(engine_file_path))
-        with open(engine_file_path, "rb") as f, trt.Runtime(TRT_LOGGER) as runtime:
-            return runtime.deserialize_cuda_engine(f.read())
-    else:
-        return build_engine(max_batch_size, save_engine)
-
-
-def do_inference(context, bindings, inputs, outputs, stream, batch_size=1):
-    # Transfer data from CPU to the GPU.
-    [cuda.memcpy_htod_async(inp.device, inp.host, stream) for inp in inputs]
-    # Run inference.
-    context.execute_async(batch_size=batch_size, bindings=bindings, stream_handle=stream.handle)
-    # Transfer predictions back from the GPU.
-    [cuda.memcpy_dtoh_async(out.host, out.device, stream) for out in outputs]
-    # Synchronize the stream
-    stream.synchronize()
-    # Return only the host outputs.
-    return [out.host for out in outputs]
-
-
-def postprocess_the_outputs(h_outputs, shape_of_output):
-    h_outputs = h_outputs.reshape(*shape_of_output)
-    return h_outputs    
-
-
-class HostDeviceMem(object):
-    def __init__(self, host_mem, device_mem):
-        """Within this context, host_mom means the cpu memory and device means the GPU memory
-        """
-        self.host = host_mem
-        self.device = device_mem
-
-    def __str__(self):
-        return "Host:\n" + str(self.host) + "\nDevice:\n" + str(self.device)
-
-    def __repr__(self):
-        return self.__str__()
-
-
-def allocate_buffers(engine, context):
-    inputs = []
-    outputs = []
-    bindings = []
-    for binding in engine:
-        #size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
-        #size = trt.volume(engine.get_binding_shape(binding)) # fit tensorrt7
-
-        # shape = engine.get_binding_shape(binding)
-        # if shape[0]==-1:
-        #     if binding=='input':
-        #         # size = trt.volume((1, 3, 127, 127))
-        #         size = trt.volume((3, 3, 255, 255))
-        #     else:
-        #         # size = trt.volume((1, 256, 6, 6))
-        #         size = trt.volume((3, 256, 22, 22))
-
-        if binding=='input':
-            shape = context.get_binding_shape(0)
-        else:
-            shape = context.get_binding_shape(1)
-        size = trt.volume(shape)
-        dtype = trt.nptype(engine.get_binding_dtype(binding))
-
-        # Allocate host and device buffers
-        host_mem = cuda.pagelocked_empty(size, dtype)
-        device_mem = cuda.mem_alloc(host_mem.nbytes)
-        # Append the device buffer to device bindings.
-        bindings.append(int(device_mem))
-        # Append to the appropriate list.
-        if engine.binding_is_input(binding):
-            inputs.append(HostDeviceMem(host_mem, device_mem))
-        else:
-            outputs.append(HostDeviceMem(host_mem, device_mem))
-    return inputs, outputs, bindings
-
 
 
 class Net(nn.Module):
@@ -181,48 +59,6 @@ class TrackerSiamFC(Tracker):
             self.net.load_state_dict(torch.load(
                 net_path, map_location=lambda storage, loc: storage))
         self.net = self.net.to(self.device)
-
-
-        # convert to onnx model
-        onnx_path = net_path.replace('pth', 'onnx')
-        if not os.path.exists(onnx_path):
-            # # fixed input model
-            # dummy_input = torch.randn(3, 3, 255, 255).to(self.device)
-            # input_names = ['input']
-            # output_names = ['output']
-            # torch.onnx.export(self.net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names)
-
-            # dynamic input model
-            batch = 1
-            width = 127
-            height = 127
-            dummy_input = torch.randn(batch, 3, width, height).to(self.device)
-            input_names = ['input']
-            output_names = ['output']
-            dynamic_axes = {'input':{0:'batch_size', 2:'width', 3:'height'}, 'output':{0:'batch_size', 2:'width', 3:'height'}} #adding names for better debugging
-            torch.onnx.export(self.net.backbone, dummy_input, onnx_path, verbose=True, opset_version=11, input_names=input_names, output_names=output_names, dynamic_axes=dynamic_axes)
-
-
-        # # check onnx model
-        # test = onnx.load(onnx_path)
-        # onnx.checker.check_model(test)
-        # print("==> Passed")
-
-        # Build an engine
-        self.max_batch_size = 3
-        fp16_mode = True
-        int8_mode = False
-        #trt_engine_path =  net_path.replace('pth', 'trt')
-        trt_engine_path = 'pretrained/siamfc_alexnet_e50_dynamic.engine'
-        self.engine = get_engine(self.max_batch_size, onnx_path, trt_engine_path, fp16_mode, int8_mode, True)
-
-        self.stream = cuda.Stream()
-        # Create the context for this engine
-        self.context = self.engine.create_execution_context()
-        self.profile_shapes = self.engine.get_profile_shape(0, 0)
-
-
-
 
         # convert to caffe model
         # sm = torch.jit.script(self.net)
@@ -317,33 +153,11 @@ class TrackerSiamFC(Tracker):
             img, self.center, self.z_sz,
             out_size=self.cfg.exemplar_sz,
             border_value=self.avg_color)
-
-
-        # Allocate buffers for input and output
-        self.context.set_binding_shape(0, self.profile_shapes[0])
-        self.inputs, self.outputs, self.bindings = allocate_buffers(self.engine, self.context) # input, output: host # bindings
-
-        # Tensorrt inferrence
-        # Load data to the buffer
-        self.inputs[0].host = np.expand_dims(np.transpose(z, [2, 0, 1]), axis=0).astype(np.float32).reshape(-1)
-        # Do inference
-        shape_of_output = (1, 256, 6, 6)
-        trt_outputs = do_inference(self.context, bindings=self.bindings, inputs=self.inputs, outputs=self.outputs, stream=self.stream) # numpy data
-        feat = postprocess_the_outputs(trt_outputs[0], shape_of_output)
-        self.kernel = torch.from_numpy(feat).to(self.device)
-
-
         
-        # # exemplar features
-        # z = torch.from_numpy(z).to(
-        #     self.device).permute(2, 0, 1).unsqueeze(0).float()
-        # self.kernel = self.net.backbone(z)
-
-
-        # Allocate buffers for input and output
-        self.context.set_binding_shape(0, self.profile_shapes[1])
-        self.inputs, self.outputs, self.bindings = allocate_buffers(self.engine, self.context) # input, output: host # bindings
-
+        # exemplar features
+        z = torch.from_numpy(z).to(
+            self.device).permute(2, 0, 1).unsqueeze(0).float()
+        self.kernel = self.net.backbone(z)
 
     
     @torch.no_grad()
@@ -358,30 +172,10 @@ class TrackerSiamFC(Tracker):
             border_value=self.avg_color) for f in self.scale_factors]
         x = np.stack(x, axis=0)
 
-
-
-
-        # Tensorrt inferrence
-        # Load data to the buffer
-        self.inputs[0].host = np.transpose(x, [0, 3, 1, 2]).astype(np.float32).reshape(-1)
-        # Do inference
-        shape_of_output = (3, 256, 22, 22)
-        trt_outputs = do_inference(self.context, bindings=self.bindings, inputs=self.inputs, outputs=self.outputs, stream=self.stream) # numpy data
-        feat = postprocess_the_outputs(trt_outputs[0], shape_of_output)
-        x = torch.from_numpy(feat).to(self.device)
-
-
-
-
-
-        # x = torch.from_numpy(x).to(
-        #     self.device).permute(0, 3, 1, 2).float()
-        # # responses
-        # x = self.net.backbone(x)
-        # dtest = x.cpu().numpy()
-
-
-
+        x = torch.from_numpy(x).to(
+            self.device).permute(0, 3, 1, 2).float()
+        # responses
+        x = self.net.backbone(x)
         responses = self.net.head(self.kernel, x)
         responses = responses.squeeze(1).cpu().numpy()
 
