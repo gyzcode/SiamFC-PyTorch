@@ -77,7 +77,7 @@ if __name__ == '__main__':
             cv2.rectangle(frame_disp, ui_control.get_tl(), ui_control.get_br(), (0, 0, 255), 2)
 
         if tracker.tracking:
-            cv2.rectangle(frame_disp, box, (255, 0, 0), 2)            
+            cv2.rectangle(frame_disp, tuple(box.astype(int)), (255, 0, 0), 2)            
 
 
         cv2.imshow(display_name, frame_disp)

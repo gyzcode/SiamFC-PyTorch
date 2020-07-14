@@ -105,7 +105,8 @@ class TrackerSiamFC1(Tracker):
         self.head = self.head.to(self.device)
 
         # deal with Cudnn Error in configure: 7 (CUDNN_STATUS_MAPPING_ERROR)
-        dummy_input = torch.randn(1, 3, 127, 127).to(self.device)
+        dummy_input = torch.randn(1, 1, 1, 1).to(self.device)
+        self.head(dummy_input, dummy_input)
 
         self.engine = get_engine(engine_path)
 
