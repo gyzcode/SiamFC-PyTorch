@@ -51,8 +51,6 @@ public:
     //!
     bool build();
 
-    bool build1();
-
     //!
     //! \brief Runs the TensorRT inference engine for this sample
     //!
@@ -108,66 +106,6 @@ private:
 //! \return Returns true if the engine was created successfully and false otherwise
 //!
 bool SampleMNIST::build()
-{
-    auto builder = SampleUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(sample::gLogger.getTRTLogger()));
-    if (!builder)
-    {
-        return false;
-    }
-
-    auto network = SampleUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetwork());
-    if (!network)
-    {
-        return false;
-    }
-
-    auto config = SampleUniquePtr<nvinfer1::IBuilderConfig>(builder->createBuilderConfig());
-    if (!config)
-    {
-        return false;
-    }
-
-    auto parser = SampleUniquePtr<nvcaffeparser1::ICaffeParser>(nvcaffeparser1::createCaffeParser());
-    if (!parser)
-    {
-        return false;
-    }
-
-    if (!constructNetwork(parser, network))
-    {
-        return false;
-    }
-
-    builder->setMaxBatchSize(mParams.batchSize);
-    config->setMaxWorkspaceSize(16_MiB);
-    config->setFlag(BuilderFlag::kGPU_FALLBACK);
-    config->setFlag(BuilderFlag::kSTRICT_TYPES);
-    if (mParams.fp16)
-    {
-        config->setFlag(BuilderFlag::kFP16);
-    }
-    if (mParams.int8)
-    {
-        config->setFlag(BuilderFlag::kINT8);
-    }
-
-    samplesCommon::enableDLA(builder.get(), config.get(), mParams.dlaCore);
-
-    mEngine = std::shared_ptr<nvinfer1::ICudaEngine>(
-        builder->buildEngineWithConfig(*network, *config), samplesCommon::InferDeleter());
-
-    if (!mEngine)
-        return false;
-
-    assert(network->getNbInputs() == 1);
-    mInputDims = network->getInput(0)->getDimensions();
-    assert(mInputDims.nbDims == 3);
-
-    return true;
-}
-
-
-bool SampleMNIST::build1()
 {
     size_t size{ 0 };
     std::vector<char> trtModelStream_;
@@ -384,7 +322,7 @@ bool SampleMNIST::infer()
     {
         return false;
     }
-    context->setBindingDimensions(0, mEngine->getProfileDimensions(0, 0, OptProfileSelector::kMAX));
+    context->setBindingDimensions(0, mEngine->getProfileDimensions(0, 0, OptProfileSelector::kMIN));
     mInputDims = context->getBindingDimensions(0);
 
     // Create RAII buffer manager object
@@ -480,7 +418,7 @@ int main(int argc, char** argv)
     SampleMNIST sample(params);
     sample::gLogInfo << "Building and running a GPU inference engine for MNIST" << std::endl;
 
-    if (!sample.build1())
+    if (!sample.build())
     {
         return sample::gLogger.reportFail(sampleTest);
     }

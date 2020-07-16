@@ -6,11 +6,12 @@ include_directories("./common")
 if(WIN32)
 	set(CMAKE_PREFIX_PATH "D:/programming/opencv/opencv-4.3.0/build")
 else()
-	set(CMAKE_PREFIX_PATH "/home/gyz/programming/TensorRT-7.1.3.4")
+	set(CMAKE_PREFIX_PATH "/home/gyz/programming/TensorRT-7.0.0.11")
+	set(Torch_DIR /home/gyz/programming/libtorch-1.5.1/share/cmake/Torch)
 endif()
 
-include_directories(/home/gyz/programming/TensorRT-7.1.3.4/include)
-link_directories(/home/gyz/programming/TensorRT-7.1.3.4/lib)
+include_directories(/home/gyz/programming/TensorRT-7.0.0.11/include)
+link_directories(/home/gyz/programming/TensorRT-7.0.0.11/lib)
 
 find_package(OpenCV REQUIRED)
 
@@ -21,7 +22,15 @@ else(${CUDA_FOUND})
 	MESSAGE(STATUS "cuda not found!")
 endif(${CUDA_FOUND})
 
-add_executable(trt_infer main.cpp common/logger.cpp)
-target_link_libraries(trt_infer ${OpenCV_LIBS} ${CUDA_LIBRARIES} nvinfer nvcaffe_parser)
+find_package(Torch REQUIRED)
+if(${TORCH_FOUND})
+	include_directories(${TORCH_INCLUDE_DIRS})
+else(${TORCH_FOUND})
+	MESSAGE(STATUS "torch not found!")
+endif(${TORCH_FOUND})
+
+#add_executable(trt_infer main.cpp common/logger.cpp)
+add_executable(trt_infer main1.cpp tracker.cpp)
+target_link_libraries(trt_infer ${OpenCV_LIBS} ${CUDA_LIBRARIES} ${TORCH_LIBRARIES} nvinfer nvcaffe_parser)
 
 set_property(TARGET trt_infer PROPERTY CXX_STANDARD 14)
