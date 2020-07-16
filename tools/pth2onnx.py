@@ -37,7 +37,7 @@ if __name__ == '__main__':
         net = net.to(device)
 
         # convert model
-        onnx_path = 'pretrained/siamfc_alexnet_e50_dynamic.engine'
+        onnx_path = 'pretrained/siamfc_alexnet_e50_dynamic.onnx'
         batch = 1
         width = 127
         height = 127

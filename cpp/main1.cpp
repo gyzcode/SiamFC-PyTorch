@@ -7,9 +7,28 @@ int main()
 {
     Tracker myTracker;
     myTracker.Load("/home/gyz/workzone/siamfc-pytorch/pretrained/siamfc_alexnet_e50_dynamic.engine");
-    Mat frame = imread("/home/gyz/Pictures/person.jpg");
-    Rect roi(100, 100, 50, 50);
-    myTracker.Init(frame, roi);
+    Mat frame;
+    String fn;
+    Rect2d roi(198, 214, 34, 81);
+    for(int i=1; i<=725; i++) {
+        fn = format("/home/gyz/dataset/otb100/Basketball/img/%04d.jpg", i);
+        frame = imread(fn);
+
+        if(i == 1) {
+            myTracker.Init(frame, roi);
+            rectangle(frame, roi, CV_RGB(255, 0, 0), 2);
+            imshow("Display", frame);
+            waitKey();
+        }
+        else {
+            myTracker.Update(frame, roi);
+        }
+
+        imshow("Display", frame);
+        waitKey(1);
+    }
+
+    destroyAllWindows();
 
 
     return 0;
