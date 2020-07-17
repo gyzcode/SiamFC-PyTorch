@@ -7,7 +7,7 @@ if(WIN32)
 	set(CMAKE_PREFIX_PATH "D:/programming/opencv/opencv-4.3.0/build")
 else()
 	set(CMAKE_PREFIX_PATH "/home/gyz/programming/TensorRT-7.0.0.11")
-	set(Torch_DIR /home/gyz/programming/libtorch/share/cmake/Torch)
+	set(Torch_DIR /home/gyz/programming/libtorch-1.5.1/share/cmake/Torch)
 endif()
 
 include_directories(/home/gyz/programming/TensorRT-7.0.0.11/include)

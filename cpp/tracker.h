@@ -4,13 +4,17 @@
 #include <opencv2/opencv.hpp>
 #include <NvInfer.h>
 #include <torch/script.h>
+#include <cuda_runtime_api.h>
+#include <vector>
 
 //#include <math.h>
-//#include <vector>
+
 //#include "utils.h"
 
 using namespace cv;
 using namespace nvinfer1;
+using namespace at;
+using namespace std;
 
 class /*__declspec(dllexport)*/ Tracker
 {
@@ -23,12 +27,21 @@ private:
     void* m_outputHostBuffer;
     void* m_outputDeviceBuffer;
 
+    int outputSize;
+    int outputByteSize;
+
+    cudaStream_t m_stream;
+    Tensor m_zFeat;
+    Tensor m_xFeat;
+    vector<void*> mDeviceBindings;
+
     int center_x, center_y, width, height;
-    float scale, target_sz, search_sz;
-    float mul_scale[3];
+    float scale, m_zSize, m_xSize;
+    float m_scales[3];
     float mul_penalty[3];
     Mat hanming_window;
-    //at::Tensor tmplate;
+
+    void PreProcess(const Mat& src, Mat& dst, const Rect2d& roi, int size, int outSize);
 
 public:
     Tracker();

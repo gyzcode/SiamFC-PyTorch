@@ -2,7 +2,6 @@
 #include <iostream>
 #include <fstream>
 //#include <cuda_runtime.h>
-#include <cuda_runtime_api.h>
 
 using namespace std;
 
@@ -32,18 +31,23 @@ Tracker::Tracker()
     height = 0;
 
     scale = 0.0;
-    target_sz = 0.0;
-    search_sz = 0.0;
+    m_zSize = 0.0;
+    m_xSize = 0.0;
 
-    mul_scale[0] = 0.964;
-    mul_scale[1] = 1.0;
-    mul_scale[2] = 1.0375;
+    m_scales[0] = 0.964;
+    m_scales[1] = 1.0;
+    m_scales[2] = 1.0375;
 
     mul_penalty[0] = 0.96;
     mul_penalty[1] = 1.0;
     mul_penalty[2] = 0.96;
 
     hanming_window = Hanming_weight(272, 272) * 0.176;
+
+    m_zFeat = zeros({1 ,256 ,6 , 6}, torch::kFloat32).to(at::kCUDA);
+    m_xFeat = zeros({3 ,256 ,22 , 22}, torch::kFloat32).to(at::kCUDA);
+    cudaStreamCreate(&m_stream);
+
 }
 
 Tracker::~Tracker()
@@ -94,72 +98,96 @@ void Tracker::Init(const Mat& img, const Rect2d& roi)
     // waitKey();
 
 
-    Mat frame;
-    resize(img, frame, Size(127, 127));
-    frame.convertTo(frame, CV_32FC3);
-    at::Tensor tmplate;
-    tmplate = torch::from_blob(frame.data, { 1, frame.rows, frame.cols, frame.channels() }, torch::kFloat32).permute({0, 3, 1, 2}).to(at::kCUDA);
+
+    // exemplar and search sizes
+    float context = (roi.width + roi.height) * .5f;
+    m_zSize = sqrt((roi.width + context) * (roi.height + context));
+    m_xSize = m_zSize * 2.0f;
+
+    // prepare input data
+    Mat z;
+    PreProcess(img, z, roi, m_zSize, 127);
+
+    // vector<Mat> sps;
+    // sps.resize(3);
+    // split(z, sps);
+    // vconcat(sps, z);
+    // imshow("cpp", z);
+    // waitKey();
 
 
+    z.convertTo(z, CV_32FC3);
+
+    Tensor tz = torch::from_blob(z.data, {1, 127, 127, 3}, torch::kFloat32).to(at::kCUDA).permute({0, 3, 1, 2}).contiguous();
+    // Tensor tz1 = tz.permute({0, 3, 1, 2});
+    cout << tz.is_contiguous() << endl;
+    // cout << tz1.is_contiguous() << endl;
+    // tz1 = tz1.contiguous();
+    // cout << tz1.is_contiguous() << endl;
+    
     // allocate buffers
     Dims inputDims = mEngine->getProfileDimensions(0, 0, OptProfileSelector::kMIN);
     mContext->setBindingDimensions(0, inputDims);
     Dims outputDims = mContext->getBindingDimensions(1);
+
+ 
     int inputSize = inputDims.d[0] * inputDims.d[1] * inputDims.d[2] * inputDims.d[3];
     int inputByteSize = inputSize * sizeof(float);
     cudaMalloc(&m_inputDeviceBuffer, inputByteSize);
     m_inputHostBuffer = malloc(inputByteSize);
-    int outputSize = outputDims.d[0] * outputDims.d[1] * outputDims.d[2] * outputDims.d[3];
-    int outputByteSize = outputSize * sizeof(float);
+    outputSize = outputDims.d[0] * outputDims.d[1] * outputDims.d[2] * outputDims.d[3];
+    outputByteSize = outputSize * sizeof(float);
     cudaMalloc(&m_outputDeviceBuffer, outputByteSize);
     m_outputHostBuffer = malloc(outputByteSize);
-    vector<void*> mDeviceBindings;
-    //mDeviceBindings.emplace_back(m_inputDeviceBuffer);
-    mDeviceBindings.emplace_back(tmplate.data_ptr());
-    mDeviceBindings.emplace_back(m_outputDeviceBuffer);
-
-    // prepare input data
-    // Mat frame;
-    // cv::resize(img, frame, cv::Size(127, 127));
-    // vector<cv::Mat> c;
-    // c.resize(3);
-    // cv::split(frame, c);
-    // cv::Mat cc;
-    // cv::vconcat(c, cc);
-    // // cv::Mat cc1;
-    // // cv::vconcat(cc, cc, cc1);
-    // // cv::vconcat(cc, cc1, cc1);
-    // cv::imshow("test", cc);
-    // cv::waitKey();
-    // cv::Mat cc2;
-    // cc.convertTo(cc2, CV_32F);
-    // float* fileData = (float*)cc2.data;
-    // memcpy(m_inputHostBuffer, fileData, inputByteSize);
-
-
-
-
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
+    mDeviceBindings.clear();
+    // mDeviceBindings.emplace_back(m_inputDeviceBuffer);
+    // mDeviceBindings.emplace_back(m_outputDeviceBuffer);
+    mDeviceBindings.emplace_back(tz.data_ptr());
+    mDeviceBindings.emplace_back(m_zFeat.data_ptr());
 
     // Asynchronously copy data from host input buffers to device input buffers
-    //cudaMemcpyAsync(m_inputDeviceBuffer, m_inputHostBuffer, inputByteSize, cudaMemcpyHostToDevice, stream);
+    // cudaMemcpyAsync(m_inputDeviceBuffer, m_inputHostBuffer, inputByteSize, cudaMemcpyHostToDevice, m_stream);
+    // cudaMemcpyAsync(m_inputDeviceBuffer, z.data, inputByteSize, cudaMemcpyHostToDevice, m_stream);
 
     // Asynchronously enqueue the inference work
-    mContext->enqueue(1, mDeviceBindings.data(), stream, nullptr);
+    //mContext->enqueue(1, mDeviceBindings.data(), m_stream, nullptr);
+    mContext->enqueueV2(mDeviceBindings.data(), m_stream, nullptr);
 
     // Asynchronously copy data from device output buffers to host output buffers
-    cudaMemcpyAsync(m_outputHostBuffer, m_outputDeviceBuffer, outputByteSize, cudaMemcpyDeviceToHost, stream);
+    // cudaMemcpyAsync(m_outputHostBuffer, m_outputDeviceBuffer, outputByteSize, cudaMemcpyDeviceToHost, m_stream);
+    // cudaMemcpyAsync(m_outputHostBuffer, m_zFeat.data_ptr(), outputByteSize, cudaMemcpyDeviceToHost, m_stream);
 
-    // Wait for the work in the stream to complete
-    cudaStreamSynchronize(stream);
+    // Wait for the work in the m_stream to complete
+    cudaStreamSynchronize(m_stream);
 
-    float* prob = (float*)m_outputHostBuffer;
-    for (int i = 0; i < outputSize; i++)
-    {
-        cout << i << "\t" << prob[i] << endl;
-    }
+    cout << m_zFeat.max().to(kCPU) << endl;
+    cout << m_zFeat.min().to(kCPU) << endl;
 
+    // float minv = 100;
+    // float maxv = -100;
+    // float* prob = (float*)m_outputHostBuffer;
+    // for (int i = 0; i < outputSize; i++)
+    // {
+    //     if(minv > prob[i]){
+    //         minv = prob[i];
+    //     }
+    //     if(maxv < prob[i]){
+    //         maxv = prob[i];
+    //     }
+    // }
+    // cout << maxv << endl;
+    // cout << minv << endl;
+
+
+    inputDims = mEngine->getProfileDimensions(0, 0, OptProfileSelector::kMAX);
+    mContext->setBindingDimensions(0, inputDims);
+    outputDims = mContext->getBindingDimensions(1);
+
+    mDeviceBindings[1] = m_xFeat.data_ptr();
+    outputSize = outputDims.d[0] * outputDims.d[1] * outputDims.d[2] * outputDims.d[3];
+    outputByteSize = outputSize * sizeof(float);
+    free(m_outputHostBuffer);
+    m_outputHostBuffer = malloc(outputByteSize);
 
     // width = roi.width;
     // height = roi.height;
@@ -198,6 +226,37 @@ void Tracker::Init(const Mat& img, const Rect2d& roi)
 
 void Tracker::Update(const Mat& img, Rect2d& roi)
 {   
+    vector<Mat> xs;
+    xs.resize(3);
+    for (int i = 0; i < 3; i++) {
+        PreProcess(img, xs[i], roi, m_zSize * m_scales[i], 255);
+    }
+    Mat x;
+    vconcat(xs, x);
+    x.convertTo(x, CV_32FC3);
+    Tensor tx = torch::from_blob(x.data, {3, 255, 255, 3}, torch::kFloat32).permute({0, 3, 1, 2}).to(at::kCUDA);
+    mDeviceBindings[0] = tx.data_ptr();
+
+    // Asynchronously enqueue the inference work
+    mContext->enqueue(1, mDeviceBindings.data(), m_stream, nullptr);
+
+    // Asynchronously copy data from device output buffers to host output buffers
+    //cudaMemcpyAsync(m_outputHostBuffer, m_outputDeviceBuffer, outputByteSize, cudaMemcpyDeviceToHost, m_stream);
+    cudaMemcpyAsync(m_outputHostBuffer, m_xFeat.data_ptr(), outputByteSize, cudaMemcpyDeviceToHost, m_stream);
+
+    // Wait for the work in the m_stream to complete
+    cudaStreamSynchronize(m_stream);
+
+
+
+
+    // float* prob = (float*)m_outputHostBuffer;
+    // for (int i = 0; i < outputSize; i++)
+    // {
+    //     cout << i << "\t" << prob[i] << endl;
+    // }
+
+
 
     // // ׼��ģ����������
     // vector<torch::Tensor> search_mul_tensor;
@@ -388,4 +447,38 @@ Mat Hanming_weight(int height, int width)
     hanming_weight = hanming_weight / sum;
 
     return hanming_weight;
+}
+
+
+void Tracker::PreProcess(const Mat& src, Mat& dst, const Rect2d& roi, int size, int outSize)
+{
+    // half
+    int hw = roi.width / 2;
+    int hh = roi.height / 2;
+    int hs = size / 2;
+
+    // roi center
+    int cx = roi.x + hw;
+    int cy = roi.y + hh;
+
+    // new roi
+    Rect newRoi(cx-hs, cy-hs, size, size);
+
+    // left and top margin
+    int left = max(0, hs - cx);
+    int top = max(0, hs - cy);
+
+    // intersection of new roi and src
+    newRoi &= Rect(0, 0, src.cols, src.rows);
+
+    // right and down margin
+    int right = size - newRoi.width - left;
+    int bottom = size - newRoi.height - top;
+    
+    // crop and pad
+    src(newRoi).copyTo(dst);
+    copyMakeBorder(dst, dst, top, bottom, left, right, cv::BORDER_REPLICATE);
+
+    // resize
+    resize(dst, dst, Size(outSize, outSize));
 }

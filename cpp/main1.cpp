@@ -9,16 +9,17 @@ int main()
     myTracker.Load("/home/gyz/workzone/siamfc-pytorch/pretrained/siamfc_alexnet_e50_dynamic.engine");
     Mat frame;
     String fn;
-    Rect2d roi(198, 214, 34, 81);
-    for(int i=1; i<=725; i++) {
-        fn = format("/home/gyz/dataset/otb100/Basketball/img/%04d.jpg", i);
+    Rect2d roi(205,151,17,50);
+    for(int i=1; i<=120; i++) {
+        fn = format("/home/gyz/dataset/otb100/Crossing/img/%04d.jpg", i);
         frame = imread(fn);
+        cvtColor(frame, frame, COLOR_BGR2RGB);
 
         if(i == 1) {
             myTracker.Init(frame, roi);
-            rectangle(frame, roi, CV_RGB(255, 0, 0), 2);
-            imshow("Display", frame);
-            waitKey();
+            // rectangle(frame, roi, CV_RGB(255, 0, 0), 2);
+            // imshow("Display", frame);
+            // waitKey();
         }
         else {
             myTracker.Update(frame, roi);
