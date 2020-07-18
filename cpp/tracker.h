@@ -3,7 +3,8 @@
 
 #include <opencv2/opencv.hpp>
 #include <NvInfer.h>
-#include <torch/script.h>
+//#include <torch/script.h>
+#include <torch/csrc/api/include/torch/torch.h>
 #include <cuda_runtime_api.h>
 #include <vector>
 
@@ -14,6 +15,7 @@
 using namespace cv;
 using namespace nvinfer1;
 using namespace at;
+using namespace torch;
 using namespace std;
 
 class /*__declspec(dllexport)*/ Tracker

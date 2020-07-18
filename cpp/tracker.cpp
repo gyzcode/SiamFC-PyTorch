@@ -4,6 +4,7 @@
 //#include <cuda_runtime.h>
 
 using namespace std;
+namespace F = torch::nn::functional;
 
 
 class Logger : public ILogger
@@ -44,8 +45,8 @@ Tracker::Tracker()
 
     hanming_window = Hanming_weight(272, 272) * 0.176;
 
-    m_zFeat = zeros({1 ,256 ,6 , 6}, torch::kFloat32).to(at::kCUDA);
-    m_xFeat = zeros({3 ,256 ,22 , 22}, torch::kFloat32).to(at::kCUDA);
+    m_zFeat = at::zeros({1 ,256 ,6 , 6}, kFloat32).to(kCUDA);
+    m_xFeat = at::zeros({3 ,256 ,22 , 22}, kFloat32).to(kCUDA);
     cudaStreamCreate(&m_stream);
 
 }
@@ -114,17 +115,11 @@ void Tracker::Init(const Mat& img, const Rect2d& roi)
     // vconcat(sps, z);
     // imshow("cpp", z);
     // waitKey();
+    //z.convertTo(z, CV_32FC3);
 
-
-    z.convertTo(z, CV_32FC3);
-
-    Tensor tz = torch::from_blob(z.data, {1, 127, 127, 3}, torch::kFloat32).to(at::kCUDA).permute({0, 3, 1, 2}).contiguous();
-    // Tensor tz1 = tz.permute({0, 3, 1, 2});
-    cout << tz.is_contiguous() << endl;
-    // cout << tz1.is_contiguous() << endl;
-    // tz1 = tz1.contiguous();
-    // cout << tz1.is_contiguous() << endl;
+    Tensor tz = torch::from_blob(z.data, {1, 127, 127, 3}, torch::kUInt8).to(at::kCUDA).permute({0, 3, 1, 2}).contiguous().to(torch::kFloat32);
     
+
     // allocate buffers
     Dims inputDims = mEngine->getProfileDimensions(0, 0, OptProfileSelector::kMIN);
     mContext->setBindingDimensions(0, inputDims);
@@ -160,8 +155,8 @@ void Tracker::Init(const Mat& img, const Rect2d& roi)
     // Wait for the work in the m_stream to complete
     cudaStreamSynchronize(m_stream);
 
-    cout << m_zFeat.max().to(kCPU) << endl;
-    cout << m_zFeat.min().to(kCPU) << endl;
+    //cout << m_zFeat.max().to(kCPU) << endl;
+    //cout << m_zFeat.min().to(kCPU) << endl;
 
     // float minv = 100;
     // float maxv = -100;
@@ -226,27 +221,130 @@ void Tracker::Init(const Mat& img, const Rect2d& roi)
 
 void Tracker::Update(const Mat& img, Rect2d& roi)
 {   
-    vector<Mat> xs;
-    xs.resize(3);
-    for (int i = 0; i < 3; i++) {
-        PreProcess(img, xs[i], roi, m_zSize * m_scales[i], 255);
-    }
+    // vector<Mat> xs;
+    // xs.resize(3);
+    Tensor txs[3];
     Mat x;
-    vconcat(xs, x);
-    x.convertTo(x, CV_32FC3);
-    Tensor tx = torch::from_blob(x.data, {3, 255, 255, 3}, torch::kFloat32).permute({0, 3, 1, 2}).to(at::kCUDA);
+    for (int i = 0; i < 3; i++) {
+        PreProcess(img, x, roi, m_xSize * m_scales[i], 255);
+        txs[i] = at::from_blob(x.data, {255, 255, 3}, torch::kUInt8).to(at::kCUDA);//.to(torch::kFloat32);
+    }
+    //Tensor tx = cat({txs[0], txs[1], txs[2]}).permute({0, 3, 1, 2}).contiguous().to(torch::kFloat32);
+    Tensor tx = stack({txs[0], txs[1], txs[2]}).permute({0, 3, 1, 2}).contiguous().to(torch::kFloat32);
+    // cout << tx.is_contiguous() << endl;
+    // cout << tx.sizes() << endl;
+
+    // Mat x;
+    // vconcat(xs, x);
+    // x.convertTo(x, CV_32FC3);
+    //Tensor tx = torch::from_blob(x.data, {3, 255, 255, 3}, torch::kFloat32).permute({0, 3, 1, 2}).to(at::kCUDA);
+
+    
+
+
     mDeviceBindings[0] = tx.data_ptr();
 
     // Asynchronously enqueue the inference work
-    mContext->enqueue(1, mDeviceBindings.data(), m_stream, nullptr);
+    mContext->enqueueV2(mDeviceBindings.data(), m_stream, nullptr);
 
     // Asynchronously copy data from device output buffers to host output buffers
     //cudaMemcpyAsync(m_outputHostBuffer, m_outputDeviceBuffer, outputByteSize, cudaMemcpyDeviceToHost, m_stream);
-    cudaMemcpyAsync(m_outputHostBuffer, m_xFeat.data_ptr(), outputByteSize, cudaMemcpyDeviceToHost, m_stream);
+    // cudaMemcpyAsync(m_outputHostBuffer, m_xFeat.data_ptr(), outputByteSize, cudaMemcpyDeviceToHost, m_stream);
 
     // Wait for the work in the m_stream to complete
     cudaStreamSynchronize(m_stream);
 
+    // cout << m_xFeat.max().to(kCPU) << endl;
+    // cout << m_xFeat.min().to(kCPU) << endl;
+
+
+    Tensor response = F::conv2d(m_xFeat, m_zFeat, F::Conv2dFuncOptions().groups(1)) * 0.001;
+    // cout << response.sizes() << endl;
+    // cout << response.max().to(kCPU) << endl;
+    // cout << response.min().to(kCPU) << endl;
+
+
+   // ��Ӧͼ���ݷ����ڴ�
+    cv::Mat resultImg(cv::Size(17, 17), CV_32FC3);
+    //response = response.squeeze().detach().permute({ 1, 2, 0 }).to(torch::kCPU).to(torch::kFloat32);
+    response = response.squeeze().permute({ 1, 2, 0 }).contiguous().to(torch::kCPU).to(torch::kFloat32);
+    // cout << response.sizes() << endl;
+    // cout << response.is_contiguous() << endl;
+
+
+    std::memcpy((void *) resultImg.data, response.data_ptr(), 4 * response.numel());
+    //Mat resultImg(cv::Size(17,17), CV_8UC3, output.data<float>());
+
+    cv::resize(resultImg, resultImg, cv::Size(272, 272), cv::INTER_CUBIC);
+
+    vector<Mat> channels;
+	split(resultImg, channels);
+    double global_max = -100000.0;
+    double global_min = 100000.0;
+    int gloabl_maxInd[3];
+    int choosed_id = 1;
+    for(int i=0;i<channels.size();i++)
+    {
+        int maxInd[3];
+        double max_value;
+        double min_value;
+        minMaxIdx(channels[i]*mul_penalty[i]*mul_penalty[i], &min_value, &max_value, NULL, maxInd);
+        // cout<<max_value<<" M M M  "<<endl;
+        if(max_value > global_max)
+        {
+            global_max = max_value;
+            gloabl_maxInd[0] = maxInd[0];
+            gloabl_maxInd[1] = maxInd[1];
+            gloabl_maxInd[2] = i;
+        }
+        if(min_value < global_min)
+        {
+            global_min = min_value;
+            choosed_id = i;
+        }
+    }
+    resultImg = channels[choosed_id];
+    resultImg -= global_min;
+    resultImg /= sum(resultImg)[0];
+    resultImg = resultImg*0.824 + hanming_window*0.176; 
+
+	split(resultImg, channels);
+    global_max = -100000.0;
+    global_min = 100000.0;
+    for(int i=0;i<channels.size();i++)
+    {
+        int maxInd[3];
+        double max_value;
+        double min_value;
+        minMaxIdx(channels[i], &min_value, &max_value, NULL, maxInd);
+        if(max_value > global_max)
+        {
+            global_max = max_value;
+            gloabl_maxInd[0] = maxInd[0];
+            gloabl_maxInd[1] = maxInd[1];
+        }
+        if(min_value < global_min)
+        {
+            global_min = min_value;
+        }
+    }
+
+    float dispx = gloabl_maxInd[1] - 271/2.0;
+    float dispy = gloabl_maxInd[0] - 271/2.0;
+    dispx /= 2.0;
+    dispy /= 2.0;
+    dispx = dispx * m_xSize / 255;
+    dispy = dispy * m_xSize / 255;
+    
+    // cout<<gloabl_maxInd[0]<<" "<<gloabl_maxInd[1]<<" "<<gloabl_maxInd[2]<<"{{{{{{{    {{"<<endl;
+
+    m_xSize *= m_scales[gloabl_maxInd[2]];
+
+    roi.x += dispx;
+    roi.y += dispy;
+
+    roi.width *= m_scales[gloabl_maxInd[2]];
+    roi.height *= m_scales[gloabl_maxInd[2]];
 
 
 
