@@ -40,7 +40,7 @@ private:
     int center_x, center_y, width, height;
     float scale, m_zSize, m_xSize;
     float m_scales[3];
-    float mul_penalty[3];
+    float m_penalty;
     Mat hanming_window;
 
     void PreProcess(const Mat& src, Mat& dst, const Rect2d& roi, int size, int outSize);
