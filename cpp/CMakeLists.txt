@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(trt_infer)
 
-include_directories("./common")
-
 if(WIN32)
 	set(CMAKE_PREFIX_PATH "D:/programming/opencv/opencv-4.3.0/build")
 else()
@@ -36,6 +34,6 @@ endif(${TORCH_FOUND})
 
 #add_executable(trt_infer main.cpp common/logger.cpp)
 add_executable(trt_infer main1.cpp tracker.cpp)
-target_link_libraries(trt_infer ${OpenCV_LIBS} ${CUDA_LIBRARIES} ${TORCH_LIBRARIES} nvinfer nvcaffe_parser)
+target_link_libraries(trt_infer ${OpenCV_LIBS} ${CUDA_LIBRARIES} ${TORCH_LIBRARIES} nvinfer)
 
 set_property(TARGET trt_infer PROPERTY CXX_STANDARD 14)
