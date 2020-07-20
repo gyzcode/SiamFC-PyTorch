@@ -1,8 +1,8 @@
 #include "tracker.h"
 #include <iostream>
 #include <fstream>
-#include <opencv2/cudawarping.hpp>
-#include <opencv2/cudaarithm.hpp>
+// #include <opencv2/cudawarping.hpp>
+// #include <opencv2/cudaarithm.hpp>
 //#include <cuda_runtime.h>
 
 using namespace std;
@@ -157,14 +157,15 @@ void Tracker::Update(const Mat& img, Rect2d& roi)
 
     // upsample
     response = response[scaleId].squeeze();
-    cv::cuda::GpuMat gResponse(17, 17, CV_32F, response.data_ptr());
+    // cv::cuda::GpuMat gResponse(17, 17, CV_32F, response.data_ptr());
 
     // error: invalid argument in function 'bindTexture'
     // cv::cuda::GpuMat test;
     // cv::cuda::resize(gResponse, test, Size(272,272),0,0,INTER_CUBIC);
 
-    Mat cResponse;
-    gResponse.download(cResponse);
+    // Mat cResponse;
+    // gResponse.download(cResponse);
+    Mat cResponse(17, 17, CV_32F, response.cpu().data_ptr());
     resize(cResponse, cResponse, Size(272, 272), 0, 0, INTER_CUBIC);
 
     // peak location
