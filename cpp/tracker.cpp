@@ -1,9 +1,7 @@
 #include "tracker.h"
 #include <iostream>
 #include <fstream>
-// #include <opencv2/cudawarping.hpp>
-// #include <opencv2/cudaarithm.hpp>
-//#include <cuda_runtime.h>
+
 
 using namespace std;
 namespace F = torch::nn::functional;
@@ -22,8 +20,6 @@ class Logger : public ILogger
 }gLogger;
 
 
-Mat Gaussion_weight(int height, int width, float theta);
-Mat Hanming_weight(int height, int width);
 
 
 Tracker::Tracker()
@@ -43,10 +39,18 @@ Tracker::Tracker()
 
     m_penalty = 0.96;
 
-    hanming_window = Hanming_weight(272, 272) * 0.176;
+    // hanming_window = Hanming_weight(272, 272);
+
+    torch::TensorOptions options;
+    options= options.dtype(kFloat32).device(kCUDA);
+    Tensor hann = torch::hann_window(272, options);
+    mHannWindow = torch::ger(hann, hann);
+    mHannWindow /= mHannWindow.sum();
+    mHannWindow *= 0.176;
 
     m_zFeat = at::zeros({1 ,256 ,6 , 6}, kFloat32).to(kCUDA);
     m_xFeat = at::zeros({3 ,256 ,22 , 22}, kFloat32).to(kCUDA);
+
     cudaStreamCreate(&m_stream);
 
 }
@@ -156,27 +160,18 @@ void Tracker::Update(const Mat& img, Rect2d& roi)
     }
 
     // upsample
-    response = response[scaleId].squeeze();
-    // cv::cuda::GpuMat gResponse(17, 17, CV_32F, response.data_ptr());
-
-    // error: invalid argument in function 'bindTexture'
-    // cv::cuda::GpuMat test;
-    // cv::cuda::resize(gResponse, test, Size(272,272),0,0,INTER_CUBIC);
-
-    // Mat cResponse;
-    // gResponse.download(cResponse);
-    Mat cResponse(17, 17, CV_32F, response.cpu().data_ptr());
-    resize(cResponse, cResponse, Size(272, 272), 0, 0, INTER_CUBIC);
+    Tensor response1 = response[scaleId].unsqueeze(0);
 
     // peak location
-    cResponse = cResponse * 0.824f + hanming_window * 0.176f; 
+    response1 = F::interpolate(response1, F::InterpolateFuncOptions().size(vector<int64_t>{272, 272}).mode(torch::kBicubic)).squeeze();
+    response1 = response1 * 0.824f + mHannWindow;
+    int maxIdx = response1.argmax().item().to<int>();
+    int maxIdxY = maxIdx / 272;
+    int maxIdxX = maxIdx % 272;
+    float dispx = maxIdxX - 271/2.0;
+    float dispy = maxIdxY - 271/2.0;
 
-    Point maxLoc;
-    minMaxLoc(cResponse, NULL, NULL, NULL, &maxLoc);
-
-
-    float dispx = maxLoc.x - 271/2.0;
-    float dispy = maxLoc.y - 271/2.0;
+    // update roi
     dispx /= 2.0;
     dispy /= 2.0;
     dispx = dispx * m_xSize / 255;
@@ -188,38 +183,6 @@ void Tracker::Update(const Mat& img, Rect2d& roi)
     roi.y += dispy;
     roi.width *= m_scales[scaleId];
     roi.height *= m_scales[scaleId];
-}
-
-
-Mat Hanming_weight(int height, int width)
-{
-
-    cv::Mat hanming_weight(cv::Size(height, width), CV_32FC1);
-
-    cv::Mat hanming_vector_row(cv::Size(height, 1), CV_32FC1);
-    cv::Mat hanming_vector_col(cv::Size(1, width), CV_32FC1);
-    for (int i = 0; i < height; i++)
-    {
-        hanming_vector_row.at<float>(0, i) = pow(sin(CV_PI * (float(i) / height)), 2);
-    }
-    for (int i = 0; i < width; i++)
-    {
-        hanming_vector_col.at<float>(i, 0) = pow(sin(CV_PI * (float(i) / width)), 2);
-    }
-
-    float sum = 0.0;
-    for (int i = 0; i < height; i++)
-    {
-        for (int j = 0; j < width; j++)
-        {
-            hanming_weight.at<float>(i, j) = hanming_vector_row.at<float>(0, i) * hanming_vector_col.at<float>(j, 0);
-            sum += hanming_weight.at<float>(i, j);
-        }
-    }
-
-    hanming_weight = hanming_weight / sum;
-
-    return hanming_weight;
 }
 
 

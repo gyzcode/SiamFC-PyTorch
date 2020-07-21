@@ -24,10 +24,10 @@ private:
     ICudaEngine* mEngine;
     IExecutionContext* mContext;
 
-    void* m_inputHostBuffer;
-    void* m_inputDeviceBuffer;
-    void* m_outputHostBuffer;
-    void* m_outputDeviceBuffer;
+    // void* m_inputHostBuffer;
+    // void* m_inputDeviceBuffer;
+    // void* m_outputHostBuffer;
+    // void* m_outputDeviceBuffer;
 
     int outputSize;
     int outputByteSize;
@@ -41,7 +41,8 @@ private:
     float scale, m_zSize, m_xSize;
     float m_scales[3];
     float m_penalty;
-    Mat hanming_window;
+    // Mat hanming_window;
+    Tensor mHannWindow;
 
     void PreProcess(const Mat& src, Mat& dst, const Rect2d& roi, int size, int outSize);
 
