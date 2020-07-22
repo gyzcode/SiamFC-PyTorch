@@ -80,6 +80,12 @@ void Tracker::Load(const String& fn)
     assert(runtime != nullptr);
     mEngine = runtime->deserializeCudaEngine(trtModelStream_.data(), size, nullptr);
     mContext = mEngine->createExecutionContext();
+
+    // deal with first run slow issue
+    Mat tmp(100, 100, CV_8UC3);
+    Rect2d roi(40, 40, 20, 20);
+    Init(tmp, roi);
+    Update(tmp, roi);
 }
 
 
@@ -95,25 +101,20 @@ void Tracker::Init(const Mat& img, const Rect2d& roi)
     PreProcess(img, z, roi, m_zSize, 127);
 
     Tensor tz = torch::from_blob(z.data, {1, 127, 127, 3}, torch::kUInt8).to(at::kCUDA).permute({0, 3, 1, 2}).contiguous().to(torch::kFloat32);
-    
 
     // allocate buffers
     Dims inputDims = mEngine->getProfileDimensions(0, 0, OptProfileSelector::kMIN);
     mContext->setBindingDimensions(0, inputDims);
     Dims outputDims = mContext->getBindingDimensions(1);
-
  
     mDeviceBindings.clear();
     mDeviceBindings.emplace_back(tz.data_ptr());
     mDeviceBindings.emplace_back(m_zFeat.data_ptr());
 
-
     // Asynchronously enqueue the inference work
     mContext->enqueueV2(mDeviceBindings.data(), m_stream, nullptr);
-
     // Wait for the work in the m_stream to complete
     cudaStreamSynchronize(m_stream);
-
 
     inputDims = mEngine->getProfileDimensions(0, 0, OptProfileSelector::kMAX);
     mContext->setBindingDimensions(0, inputDims);
@@ -125,6 +126,7 @@ void Tracker::Init(const Mat& img, const Rect2d& roi)
 
 void Tracker::Update(const Mat& img, Rect2d& roi)
 {   
+    // need speed up //////////////////////////////////////////////////////////////////////////////////////////////////
     Tensor txs[3];
     Mat x;
     for (int i = 0; i < 3; i++) {
@@ -132,12 +134,12 @@ void Tracker::Update(const Mat& img, Rect2d& roi)
         txs[i] = at::from_blob(x.data, {255, 255, 3}, torch::kUInt8).to(at::kCUDA);
     }
     Tensor tx = stack({txs[0], txs[1], txs[2]}).permute({0, 3, 1, 2}).contiguous().to(torch::kFloat32);
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
 
     mDeviceBindings[0] = tx.data_ptr();
 
     // Asynchronously enqueue the inference work
     mContext->enqueueV2(mDeviceBindings.data(), m_stream, nullptr);
-
     // Wait for the work in the m_stream to complete
     cudaStreamSynchronize(m_stream);
 
@@ -148,6 +150,7 @@ void Tracker::Update(const Mat& img, Rect2d& roi)
     response[0] *= m_penalty;
     response[2] *= m_penalty;
 
+    // need speed up //////////////////////////////////////////////////////////////////////////////////////////////////
     // peak scale
     float maxRec = INT_MIN;
     int scaleId = 0;
@@ -158,12 +161,13 @@ void Tracker::Update(const Mat& img, Rect2d& roi)
             scaleId = i;
         }
     }
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
 
     // upsample
     Tensor response1 = response[scaleId].unsqueeze(0);
+    response1 = F::interpolate(response1, F::InterpolateFuncOptions().size(vector<int64_t>{272, 272}).mode(torch::kBicubic).align_corners(false)).squeeze();
 
     // peak location
-    response1 = F::interpolate(response1, F::InterpolateFuncOptions().size(vector<int64_t>{272, 272}).mode(torch::kBicubic)).squeeze();
     response1 = response1 * 0.824f + mHannWindow;
     int maxIdx = response1.argmax().item().to<int>();
     int maxIdxY = maxIdx / 272;

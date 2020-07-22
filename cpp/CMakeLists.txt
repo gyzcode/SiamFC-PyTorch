@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(trt_infer)
 
-set(AMD64 1)
+set(AMD64 0)
  
 if(WIN32)
 	MESSAGE(STATUS "WIN32")
@@ -16,7 +16,7 @@ else()
 	MESSAGE(STATUS "ARM64")
 	set(OpenCV_DIR /usr/lib/aarch64-linux-gnu/cmake/opencv4)
 	set(Torch_DIR /home/gyz/.local/lib/python3.6/site-packages/torch/share/cmake/Torch)
-	set(CUDNN_LIBRARY_PATH /usr/lib/aarch64-linux-gnu)
+	#set(CUDNN_LIBRARY_PATH /usr/lib/aarch64-linux-gnu)
 endif()
 
 
