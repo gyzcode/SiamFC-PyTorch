@@ -13,14 +13,19 @@ int main()
     for(int i=1; i<=120; i++) {
         fn = format("/home/gyz/dataset/otb100/Crossing/img/%04d.jpg", i);
         frame = imread(fn);
-        cvtColor(frame, frame, COLOR_BGR2RGB);
+        //cvtColor(frame, frame, COLOR_BGR2RGB);
 
+        TickMeter tm;
+        tm.start();
         if(i == 1) {
             myTracker.Init(frame, roi);
         }
         else {
             myTracker.Update(frame, roi);
         }
+        tm.stop();
+        cout << tm.getTimeMilli() << endl;
+
         rectangle(frame, roi, CV_RGB(255, 0, 0), 2);
         imshow("Display", frame);
         waitKey(1);
