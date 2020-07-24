@@ -46,4 +46,9 @@ endif(${TORCH_FOUND})
 add_executable(trt_infer main1.cpp tracker.cpp)
 target_link_libraries(trt_infer ${OpenCV_LIBS} ${CUDA_LIBRARIES} ${TORCH_LIBRARIES} nvinfer)
 
+include_directories(./common)
+add_executable(sample_onnx_mnist sampleOnnxMNIST.cpp ./common/logger.cpp)
+target_link_libraries(sample_onnx_mnist ${CUDA_LIBRARIES} nvinfer nvonnxparser)
+
 set_property(TARGET trt_infer PROPERTY CXX_STANDARD 14)
+set_property(TARGET sample_onnx_mnist PROPERTY CXX_STANDARD 14)
