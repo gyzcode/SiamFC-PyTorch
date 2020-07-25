@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(trt_infer)
 
-set(AMD64 0)
+set(AMD64 1)
  
 if(WIN32)
 	MESSAGE(STATUS "WIN32")
@@ -9,14 +9,13 @@ if(WIN32)
 elseif(AMD64)
 	MESSAGE(STATUS "AMD64")
 	set(CMAKE_PREFIX_PATH "/home/gyz/programming/TensorRT-7.0.0.11")
-	set(Torch_DIR /home/gyz/programming/libtorch-1.5.1/share/cmake/Torch)
+	set(Torch_DIR /home/gyz/programming/libtorch/share/cmake/Torch)
 	include_directories(/home/gyz/programming/TensorRT-7.0.0.11/include)
 	link_directories(/home/gyz/programming/TensorRT-7.0.0.11/lib)
 else()
 	MESSAGE(STATUS "ARM64")
 	set(OpenCV_DIR /usr/lib/aarch64-linux-gnu/cmake/opencv4)
 	set(Torch_DIR /home/gyz/.local/lib/python3.6/site-packages/torch/share/cmake/Torch)
-	#set(CUDNN_LIBRARY_PATH /usr/lib/aarch64-linux-gnu)
 endif()
 
 

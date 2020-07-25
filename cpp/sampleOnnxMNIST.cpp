@@ -28,6 +28,7 @@
 #include "common.h"
 #include "logger.h"
 #include "parserOnnxConfig.h"
+#include "BatchStream.h"
 
 #include "NvInfer.h"
 #include <cuda_runtime_api.h>
@@ -36,6 +37,34 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+
+template <typename T>
+struct TrtDestroyer
+{
+    void operator()(T* t) { t->destroy(); }
+};
+
+template <typename T> using TrtUniquePtr = std::unique_ptr<T, TrtDestroyer<T> >;
+
+bool saveEngine(const ICudaEngine& engine, const std::string& fileName)
+{
+    std::ofstream engineFile(fileName, std::ios::binary);
+    if (!engineFile)
+    {
+        cout << "Cannot open engine file: " << fileName << std::endl;
+        return false;
+    }
+
+    TrtUniquePtr<IHostMemory> serializedEngine{engine.serialize()};
+    if (serializedEngine == nullptr)
+    {
+        cout << "Engine serialization failed" << std::endl;
+        return false;
+    }
+
+    engineFile.write(static_cast<char*>(serializedEngine->data()), serializedEngine->size());
+    return !engineFile.fail();
+}
 
 const std::string gSampleName = "TensorRT.sample_onnx_mnist";
 
@@ -128,19 +157,19 @@ bool SampleOnnxMNIST::build()
     }
 
     // Reshape a dynamically shaped input to the size expected by the model, (3, 3, 255, 255).
-    auto input = network->addInput("input", nvinfer1::DataType::kFLOAT, Dims4{-1, 3, -1, -1});
-    auto resizeLayer = network->addResize(*input);
-    resizeLayer->setOutputDimensions(Dims4{3, 3, 255, 255});
-    network->markOutput(*resizeLayer->getOutput(0));
+    // auto input = network->addInput("input", nvinfer1::DataType::kFLOAT, Dims4{-1, 3, -1, -1});
+    // auto resizeLayer = network->addResize(*input);
+    // resizeLayer->setOutputDimensions(Dims4{3, 3, 255, 255});
+    // network->markOutput(*resizeLayer->getOutput(0));
 
     // Create an optimization profile so that we can specify a range of input dimensions.
     auto profile = builder->createOptimizationProfile();
 
     // This profile will be valid for all images whose size falls in the range of [(1, 3, 127, 127), (3, 3, 255, 255)]
     // but TensorRT will optimize for (3, 3, 255, 255)
-    profile->setDimensions(input->getName(), OptProfileSelector::kMIN, Dims4{1, 3, 127, 127});
-    profile->setDimensions(input->getName(), OptProfileSelector::kOPT, Dims4{3, 3, 255, 255});
-    profile->setDimensions(input->getName(), OptProfileSelector::kMAX, Dims4{3, 3, 255, 255});
+    profile->setDimensions("input", OptProfileSelector::kMIN, Dims4{1, 3, 127, 127});
+    profile->setDimensions("input", OptProfileSelector::kOPT, Dims4{3, 3, 255, 255});
+    profile->setDimensions("input", OptProfileSelector::kMAX, Dims4{3, 3, 255, 255});
     config->addOptimizationProfile(profile);
 
     auto constructed = constructNetwork(builder, network, config, parser);
@@ -156,13 +185,16 @@ bool SampleOnnxMNIST::build()
         return false;
     }
 
+    saveEngine(*(mEngine.get()), "test.engine");
+
     assert(network->getNbInputs() == 1);
     mInputDims = network->getInput(0)->getDimensions();
     assert(mInputDims.nbDims == 4);
 
     assert(network->getNbOutputs() == 1);
     mOutputDims = network->getOutput(0)->getDimensions();
-    assert(mOutputDims.nbDims == 2);
+    assert(mOutputDims.nbDims == 4);
+
 
     return true;
 }
@@ -179,6 +211,9 @@ bool SampleOnnxMNIST::constructNetwork(SampleUniquePtr<nvinfer1::IBuilder>& buil
     SampleUniquePtr<nvinfer1::INetworkDefinition>& network, SampleUniquePtr<nvinfer1::IBuilderConfig>& config,
     SampleUniquePtr<nvonnxparser::IParser>& parser)
 {
+    // Calibrator life time needs to last until after the engine is built.
+    std::unique_ptr<IInt8Calibrator> calibrator;
+
     auto parsed = parser->parseFromFile(
         locateFile(mParams.onnxFileName, mParams.dataDirs).c_str(), static_cast<int>(gLogger.getReportableSeverity()));
     if (!parsed)
@@ -194,7 +229,16 @@ bool SampleOnnxMNIST::constructNetwork(SampleUniquePtr<nvinfer1::IBuilder>& buil
     if (mParams.int8)
     {
         config->setFlag(BuilderFlag::kINT8);
-        samplesCommon::setAllTensorScales(network.get(), 127.0f, 127.0f);
+        //samplesCommon::setAllTensorScales(network.get(), 127.0f, 127.0f);
+
+        int calBatchSize;
+        int nbCalBatches;
+        MNISTBatchStream calibrationStream(calBatchSize, nbCalBatches, "train-images-idx3-ubyte",
+            "train-labels-idx1-ubyte", mParams.dataDirs);
+        calibrator.reset(new Int8EntropyCalibrator2<MNISTBatchStream>(
+            calibrationStream, 0, mParams.networkName.c_str(), mParams.inputTensorNames[0].c_str()));
+        config->setInt8Calibrator(calibrator.get());
+
     }
 
     samplesCommon::enableDLA(builder.get(), config.get(), mParams.dlaCore);
@@ -335,8 +379,8 @@ samplesCommon::OnnxSampleParams initializeSampleParams(const samplesCommon::Args
     params.batchSize = 1;
     params.outputTensorNames.push_back("output");
     params.dlaCore = args.useDLACore;
-    params.int8 = args.runInInt8;
-    params.fp16 = true;
+    params.int8 = true;
+    params.fp16 = false;
 
     return params;
 }
