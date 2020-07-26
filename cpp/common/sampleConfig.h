@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2020, NVIDIA CORPORATION. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,12 +49,14 @@ private:
     int64_t mFirstCalibBatch{0};
     int64_t mUseDLACore{-1};
     nvinfer1::DataType mModelDtype{nvinfer1::DataType::kFLOAT};
+    bool mTF32{true};
     Verbosity mVerbosity{static_cast<int>(nvinfer1::ILogger::Severity::kWARNING)};
     bool mPrintLayercInfo{false};
     bool mDebugBuilder{false};
     InputDataFormat mInputDataFormat{InputDataFormat::kASCII};
     uint64_t mTopK{0};
     float mFailurePercentage{-1.0f};
+    float mTolerance{0.0f};
 
 public:
     SampleConfig()
@@ -87,6 +89,16 @@ public:
     nvinfer1::DataType getModelDtype() const
     {
         return mModelDtype;
+    }
+
+    bool getTF32() const
+    {
+        return mTF32;
+    }
+
+    void setTF32(bool enabled)
+    {
+        mTF32 = enabled;
     }
 
     const char* getModelFileName() const
@@ -279,6 +291,16 @@ public:
     void setFailurePercentage(float f)
     {
         mFailurePercentage = f;
+    }
+
+    float getTolerance() const
+    {
+        return mTolerance;
+    }
+
+    void setTolerance(float t)
+    {
+        mTolerance = t;
     }
 
     bool isDebug() const

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2020, NVIDIA CORPORATION. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,64 @@
 #include <assert.h>
 #include <stdio.h>
 #include <vector>
+#include <glob.h>
+#include <opencv2/opencv.hpp>
+
+using namespace cv;
+using namespace std;
+
+vector<string> SplitString(const string& str, const string& delim)
+{
+	vector<string> res;
+	if ("" == str) return res;
+	char* strs = new char[str.length() + 1];
+	strcpy(strs, str.c_str());
+
+	char* d = new char[delim.length() + 1];
+	strcpy(d, delim.c_str());
+
+	char* p = strtok(strs, d);
+	while (p) {
+		string s = p;
+		res.push_back(s);
+		p = strtok(NULL, d);
+	}
+
+	return res;
+}
+
+void PreProcess(const Mat& src, Mat& dst, const Rect2d& roi, int size, int outSize)
+{
+    // half
+    int hw = roi.width / 2;
+    int hh = roi.height / 2;
+    int hs = size / 2;
+
+    // roi center
+    int cx = roi.x + hw;
+    int cy = roi.y + hh;
+
+    // new roi
+    Rect newRoi(cx-hs, cy-hs, size, size);
+
+    // left and top margin
+    int left = max(0, hs - cx);
+    int top = max(0, hs - cy);
+
+    // intersection of new roi and src
+    newRoi &= Rect(0, 0, src.cols, src.rows);
+
+    // right and down margin
+    int right = size - newRoi.width - left;
+    int bottom = size - newRoi.height - top;
+    
+    // crop and pad
+    src(newRoi).copyTo(dst);
+    copyMakeBorder(dst, dst, top, bottom, left, right, cv::BORDER_REPLICATE);
+
+    // resize
+    cv::resize(dst, dst, Size(outSize, outSize));
+}
 
 class IBatchStream
 {
@@ -43,10 +101,11 @@ public:
         const std::vector<std::string>& directories)
         : mBatchSize{batchSize}
         , mMaxBatches{maxBatches}
-        , mDims{3, 1, 28, 28} //!< We already know the dimensions of MNIST images.
+        , mDims{3, 3, 255, 255} //!< We already know the dimensions of MNIST images.
     {
-        readDataFile(locateFile(dataFile, directories));
-        readLabelsFile(locateFile(labelsFile, directories));
+        // readDataFile(locateFile(dataFile, directories));
+        // readLabelsFile(locateFile(labelsFile, directories));
+        readDataFile1(dataFile);
     }
 
     void reset(int firstBatch) override
@@ -121,6 +180,73 @@ private:
         mData.resize(numElements);
         std::transform(
             rawData.begin(), rawData.end(), mData.begin(), [](uint8_t val) { return static_cast<float>(val) / 255.f; });
+    }
+
+    void readDataFile1(const std::string& dataFilePath)
+    {
+        int elemSize = 255 * 255;
+        int byteSize = elemSize * 4;
+
+        glob_t pglob;
+    
+        if (glob(dataFilePath.c_str(), GLOB_ERR, NULL, &pglob) != 0)
+        {
+            printf("Failed to load from abc folder!\n");
+            return;
+        }
+
+        mData.resize(elemSize * 3 * 3 * pglob.gl_pathc);
+    
+        for (int i = 0; i < pglob.gl_pathc; i++)
+        {
+            printf("(%d/%d) %s is loading...\n", i + 1, pglob.gl_pathc, pglob.gl_pathv[i]);
+
+            string fn = pglob.gl_pathv[i];
+            Mat img = imread(fn.c_str());
+
+            int start = fn.find("img/0001.jpg");
+            fn = fn.replace(start, 12, "groundtruth_rect.txt");
+            ifstream ifs(fn);
+            string line;
+            getline(ifs, line);
+            ifs.close();
+
+            vector<string> val;
+            val = SplitString(line, ",");
+            if (val.size() != 4){
+                val = SplitString(line, "\t");
+            }
+            Rect2d roi;
+            roi.x = atoi(val[0].c_str());
+            roi.y = atoi(val[1].c_str());
+            roi.width = atoi(val[2].c_str());
+            roi.height = atoi(val[3].c_str());
+
+            float context = (roi.width + roi.height) * .5f;
+            float size = sqrt((roi.width + context) * (roi.height + context))  * 2.0f;
+            Mat x;
+            for (int j = 0; j < 3; j++) {
+                PreProcess(img, x, roi, size * pow(1.0375, j-1), 255);
+
+                vector<Mat> plane;
+                plane.resize(3);
+                split(x, plane);
+
+                for (int k = 0; k < 3; k++) {
+                    // imshow("test", plane[k]);
+                    // waitKey();
+
+                    Mat x1;
+                    plane[k].convertTo(x1, CV_32F);
+
+                    int idx = ((i * 3 + j) * 3 + k) * elemSize;
+                    float* pStart = &mData[idx];
+                    memcpy(pStart, x1.data, byteSize);
+                }
+            }
+        }
+
+        globfree(&pglob);
     }
 
     void readLabelsFile(const std::string& labelsFilePath)
@@ -322,7 +448,7 @@ private:
                 return false;
             }
 
-            gLogInfo << "Batch #" << mFileCount << std::endl;
+            sample::gLogInfo << "Batch #" << mFileCount << std::endl;
             file.seekg(((mBatchCount * mBatchSize)) * 7);
 
             for (int i = 1; i <= mBatchSize; i++)
@@ -330,7 +456,7 @@ private:
                 std::string sName;
                 std::getline(file, sName);
                 sName = sName + ".ppm";
-                gLogInfo << "Calibrating with file " << sName << std::endl;
+                sample::gLogInfo << "Calibrating with file " << sName << std::endl;
                 fNames.emplace_back(sName);
             }
 
