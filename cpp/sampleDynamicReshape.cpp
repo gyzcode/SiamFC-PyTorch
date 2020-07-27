@@ -300,13 +300,14 @@ bool SampleDynamicReshape::buildPredictionEngine(const SampleUniquePtr<nvinfer1:
     if (mParams.int8)
     {
         config->setFlag(BuilderFlag::kINT8);
-        int nCalibBatches{90};
-        MNISTBatchStream calibrationStream(calibBatchSize, nCalibBatches, "/home/gyz/dataset/otb100/*/img/0001.jpg",
+        int nCalibBatches{500};
+        MNISTBatchStream calibrationStream(calibBatchSize, nCalibBatches, "/home/gyz/dataset/got10k/train/*/00000001.jpg",
             "train-labels-idx1-ubyte", mParams.dataDirs);
         calibrator.reset(new Int8EntropyCalibrator2<MNISTBatchStream>(
-            calibrationStream, 0, "MNISTPrediction", inputName));
+            calibrationStream, 0, "Siamfc", inputName));
         config->setInt8Calibrator(calibrator.get());
     }
+
     // Build the prediciton engine.
     mPredictionEngine = makeUnique(builder->buildEngineWithConfig(*network, *config));
     if (!mPredictionEngine)
@@ -478,7 +479,7 @@ samplesCommon::OnnxSampleParams initializeSampleParams(const samplesCommon::Args
     params.inputTensorNames.push_back("input");
     params.outputTensorNames.push_back("output");
     params.int8 = true; //args.runInInt8;
-    params.fp16 = false; //args.runInFp16;
+    params.fp16 = true; //args.runInFp16;
     return params;
 }
 

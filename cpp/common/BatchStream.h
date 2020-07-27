@@ -101,7 +101,7 @@ public:
         const std::vector<std::string>& directories)
         : mBatchSize{batchSize}
         , mMaxBatches{maxBatches}
-        , mDims{3, 3, 255, 255} //!< We already know the dimensions of MNIST images.
+        , mDims{1, 3, 255, 255} //!< We already know the dimensions of MNIST images.
     {
         // readDataFile(locateFile(dataFile, directories));
         // readLabelsFile(locateFile(labelsFile, directories));
@@ -195,23 +195,29 @@ private:
             return;
         }
 
-        mData.resize(elemSize * 3 * 3 * pglob.gl_pathc);
+        int num = min(mMaxBatches, (int)pglob.gl_pathc);
+        mData.resize(elemSize * 3 * 3 * num);
     
-        for (int i = 0; i < pglob.gl_pathc; i++)
+        for (int i = 0; i < num; i++)
         {
-            printf("(%d/%d) %s is loading...\n", i + 1, pglob.gl_pathc, pglob.gl_pathv[i]);
+            printf("(%d/%d) %s is loading...\n", i + 1, num, pglob.gl_pathv[i]);
 
             string fn = pglob.gl_pathv[i];
             Mat img = imread(fn.c_str());
 
-            int start = fn.find("img/0001.jpg");
-            if((int)fn.find("Human4") > 0 || (int)fn.find("Skating2") > 0){
-                fn = fn.replace(start, 12, "groundtruth_rect.2.txt");
-            }
-            else{
-                fn = fn.replace(start, 12, "groundtruth_rect.txt");
-            }
+            // otb100
+            // int start = fn.find("img/0001.jpg");
+            // if((int)fn.find("Human4") > 0 || (int)fn.find("Skating2") > 0){
+            //     fn = fn.replace(start, 12, "groundtruth_rect.2.txt");
+            // }
+            // else{
+            //     fn = fn.replace(start, 12, "groundtruth_rect.txt");
+            // }
             
+            // got10k
+            int start = fn.find("00000001.jpg");
+            fn = fn.replace(start, 12, "groundtruth.txt");
+
             ifstream ifs(fn);
             string line;
             getline(ifs, line);
@@ -223,10 +229,10 @@ private:
                 val = SplitString(line, "\t");
             }
             Rect2d roi;
-            roi.x = atoi(val[0].c_str());
-            roi.y = atoi(val[1].c_str());
-            roi.width = atoi(val[2].c_str());
-            roi.height = atoi(val[3].c_str());
+            roi.x = atof(val[0].c_str());
+            roi.y = atof(val[1].c_str());
+            roi.width = atof(val[2].c_str());
+            roi.height = atof(val[3].c_str());
 
             float context = (roi.width + roi.height) * .5f;
             float size = sqrt((roi.width + context) * (roi.height + context))  * 2.0f;
