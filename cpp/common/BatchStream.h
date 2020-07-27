@@ -205,7 +205,13 @@ private:
             Mat img = imread(fn.c_str());
 
             int start = fn.find("img/0001.jpg");
-            fn = fn.replace(start, 12, "groundtruth_rect.txt");
+            if((int)fn.find("Human4") > 0 || (int)fn.find("Skating2") > 0){
+                fn = fn.replace(start, 12, "groundtruth_rect.2.txt");
+            }
+            else{
+                fn = fn.replace(start, 12, "groundtruth_rect.txt");
+            }
+            
             ifstream ifs(fn);
             string line;
             getline(ifs, line);
