@@ -45,6 +45,7 @@ private:
     Tensor mHannWindow;
 
     void PreProcess(const Mat& src, Mat& dst, const Rect2d& roi, int size, int outSize);
+    void PreProcess1(const Mat& src, Tensor& dst, const Rect2d& roi, int size, int outSize);
 
 public:
     Tracker();

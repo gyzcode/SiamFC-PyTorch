@@ -127,15 +127,21 @@ void Tracker::Init(const Mat& img, const Rect2d& roi)
 void Tracker::Update(const Mat& img, Rect2d& roi)
 {   
     // need speed up //////////////////////////////////////////////////////////////////////////////////////////////////
-    Tensor txs[3];
-    Mat x;
-    for (int i = 0; i < 3; i++) {
-        PreProcess(img, x, roi, m_xSize * m_scales[i], 255);
-        txs[i] = at::from_blob(x.data, {255, 255, 3}, torch::kUInt8).to(at::kCUDA);
-    }
-    Tensor tx = stack({txs[0], txs[1], txs[2]}).permute({0, 3, 1, 2}).contiguous().to(torch::kFloat32);
-    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Tensor txs[3];
+    // Mat x;
+    // for (int i = 0; i < 3; i++) {
+    //     PreProcess(img, x, roi, m_xSize * m_scales[i], 255);
+    //     txs[i] = at::from_blob(x.data, {255, 255, 3}, torch::kUInt8).to(at::kCUDA);
+    // }
+    // Tensor tx = stack({txs[0], txs[1], txs[2]}).permute({0, 3, 1, 2}).contiguous().to(torch::kFloat32);
+    // ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    Tensor txs[3];
+    for (int i = 0; i < 3; i++) {
+        PreProcess1(img, txs[i], roi, m_xSize * m_scales[i], 255);
+    }
+    Tensor tx = stack({txs[0], txs[1], txs[2]});
+ 
     mDeviceBindings[0] = tx.data_ptr();
     
     TickMeter tm;
@@ -225,4 +231,47 @@ void Tracker::PreProcess(const Mat& src, Mat& dst, const Rect2d& roi, int size, 
 
     // resize
     cv::resize(dst, dst, Size(outSize, outSize));
+}
+
+void Tracker::PreProcess1(const Mat& src, Tensor& dst, const Rect2d& roi, int size, int outSize)
+{
+    // half
+    int hw = roi.width / 2;
+    int hh = roi.height / 2;
+    int hs = size / 2;
+
+    // roi center
+    int cx = roi.x + hw;
+    int cy = roi.y + hh;
+
+    // new roi
+    Rect newRoi(cx-hs, cy-hs, size, size);
+
+    // left and top margin
+    int left = max(0, hs - cx);
+    int top = max(0, hs - cy);
+
+    // intersection of new roi and src
+    newRoi &= Rect(0, 0, src.cols, src.rows);
+
+    // right and down margin
+    int right = size - newRoi.width - left;
+    int bottom = size - newRoi.height - top;
+    
+    // crop and pad
+    Mat d;
+    src(newRoi).copyTo(d);
+    dst = at::from_blob(d.data, {1, newRoi.height, newRoi.width, 3}, torch::kUInt8).to(at::kCUDA);
+    dst = dst.permute({0, 3, 1, 2}).to(kFloat32);
+    dst = replication_pad2d(dst, {left, right, top, bottom});
+
+    // resize
+    dst = F::interpolate(dst, F::InterpolateFuncOptions().size(vector<int64_t>{outSize, outSize}).mode(torch::kBilinear).align_corners(false));
+    dst = dst.squeeze();
+    // dst = dst.permute({0, 2, 3, 1}).contiguous().squeeze().cpu();
+    // Mat test(outSize, outSize, CV_32FC3);
+    // memcpy(test.data, dst.data_ptr(), outSize * outSize * 3 * 4);
+    // test.convertTo(test, CV_8UC3);
+    // imshow("test", test);
+    // waitKey();
 }
