@@ -6,7 +6,7 @@ using namespace cv;
 int main()
 {
     Tracker myTracker;
-    myTracker.Load("/home/gyz/workzone/siamfc-pytorch/pretrained/test.engine");
+    myTracker.Load("/home/gyz/workzone/siamfc-pytorch/pretrained/siamfc_alexnet_e50_dynamic.engine");
     Mat frame;
     String fn;
     Rect2d roi(204,150,17,50);
@@ -15,16 +15,16 @@ int main()
         frame = imread(fn);
         //cvtColor(frame, frame, COLOR_BGR2RGB);
 
-        TickMeter tm;
-        tm.start();
+        // TickMeter tm;
+        // tm.start();
         if(i == 1) {
             myTracker.Init(frame, roi);
         }
         else {
             myTracker.Update(frame, roi);
         }
-        tm.stop();
-        cout << tm.getTimeMilli() << endl;
+        // tm.stop();
+        // cout << tm.getTimeMilli() << endl;
 
         rectangle(frame, roi, CV_RGB(255, 0, 0), 2);
         imshow("Display", frame);

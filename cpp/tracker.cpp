@@ -137,12 +137,16 @@ void Tracker::Update(const Mat& img, Rect2d& roi)
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
     mDeviceBindings[0] = tx.data_ptr();
-
+    
+    TickMeter tm;
+    tm.start();
     // Asynchronously enqueue the inference work
     mContext->enqueueV2(mDeviceBindings.data(), m_stream, nullptr);
     // Wait for the work in the m_stream to complete
     cudaStreamSynchronize(m_stream);
-
+    tm.stop();
+    cout << tm.getTimeMilli() << endl;
+    
     // cross correlation
     Tensor response = F::conv2d(m_xFeat, m_zFeat);
 

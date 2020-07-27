@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(trt_infer)
 
-set(AMD64 1)
+set(AMD64 0)
  
 if(WIN32)
 	MESSAGE(STATUS "WIN32")
