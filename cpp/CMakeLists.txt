@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(trt_infer)
 
-set(AMD64 0)
+set(AMD64 1)
  
 if(WIN32)
 	MESSAGE(STATUS "WIN32")
@@ -49,5 +49,9 @@ include_directories(./common)
 add_executable(sample_dynamic_reshape sampleDynamicReshape.cpp ./common/logger.cpp)
 target_link_libraries(sample_dynamic_reshape ${CUDA_LIBRARIES} ${OpenCV_LIBS} nvinfer nvonnxparser)
 
+add_executable(online_test online_test.cpp cv_ui.cpp)
+target_link_libraries(online_test ${OpenCV_LIBS})
+
 set_property(TARGET trt_infer PROPERTY CXX_STANDARD 14)
 set_property(TARGET sample_dynamic_reshape PROPERTY CXX_STANDARD 14)
+set_property(TARGET online_test PROPERTY CXX_STANDARD 14)
