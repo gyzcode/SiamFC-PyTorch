@@ -30,12 +30,16 @@ int main()
             }
 
             if (ui.mode == SELECT){
-                rectangle(frame, ui.GetTl(), ui.GetBr(), (0, 0, 255), 2);
+                rectangle(frame, ui.GetTl(), ui.GetBr(), CV_RGB(0, 0, 255), 2);
             }
 
             if(tracking){
+                TickMeter tm;
+                tm.start();
                 myTracker.Update(frame, roi);
-                rectangle(frame, roi, (255, 0, 0), 2);
+                tm.stop();
+                cout << tm.getTimeMilli() << endl;
+                rectangle(frame, roi, CV_RGB(255, 0, 0), 2);
             }
             
             imshow("display", frame);

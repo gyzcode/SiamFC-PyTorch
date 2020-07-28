@@ -97,10 +97,8 @@ void Tracker::Init(const Mat& img, const Rect2d& roi)
     m_xSize = m_zSize * 2.0f;
 
     // prepare input data
-    Mat z;
-    PreProcess(img, z, roi, m_zSize, 127);
-
-    Tensor tz = torch::from_blob(z.data, {1, 127, 127, 3}, torch::kUInt8).to(at::kCUDA).permute({0, 3, 1, 2}).contiguous().to(torch::kFloat32);
+    Tensor tz;
+    PreProcess(img, tz, roi, m_zSize, 127);
 
     // allocate buffers
     Dims inputDims = mEngine->getProfileDimensions(0, 0, OptProfileSelector::kMIN);
@@ -128,7 +126,7 @@ void Tracker::Update(const Mat& img, Rect2d& roi)
 {   
     Tensor txs[3];
     for (int i = 0; i < 3; i++) {
-        PreProcess1(img, txs[i], roi, m_xSize * m_scales[i], 255);
+        PreProcess(img, txs[i], roi, m_xSize * m_scales[i], 255);
     }
     Tensor tx = cat({txs[0], txs[1], txs[2]});
     mDeviceBindings[0] = tx.data_ptr();
@@ -181,40 +179,7 @@ void Tracker::Update(const Mat& img, Rect2d& roi)
 }
 
 
-void Tracker::PreProcess(const Mat& src, Mat& dst, const Rect2d& roi, int size, int outSize)
-{
-    // half
-    int hw = roi.width / 2;
-    int hh = roi.height / 2;
-    int hs = size / 2;
-
-    // roi center
-    int cx = roi.x + hw;
-    int cy = roi.y + hh;
-
-    // new roi
-    Rect newRoi(cx-hs, cy-hs, size, size);
-
-    // left and top margin
-    int left = max(0, hs - cx);
-    int top = max(0, hs - cy);
-
-    // intersection of new roi and src
-    newRoi &= Rect(0, 0, src.cols, src.rows);
-
-    // right and down margin
-    int right = size - newRoi.width - left;
-    int bottom = size - newRoi.height - top;
-    
-    // crop and pad
-    src(newRoi).copyTo(dst);
-    copyMakeBorder(dst, dst, top, bottom, left, right, cv::BORDER_REPLICATE);
-
-    // resize
-    cv::resize(dst, dst, Size(outSize, outSize));
-}
-
-void Tracker::PreProcess1(const Mat& src, Tensor& dst, const Rect2d& roi, int size, int outSize)
+void Tracker::PreProcess(const Mat& src, Tensor& dst, const Rect2d& roi, int size, int outSize)
 {
     // half
     int hw = roi.width / 2;
