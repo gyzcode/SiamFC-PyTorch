@@ -49,8 +49,8 @@ include_directories(./common)
 add_executable(sample_dynamic_reshape sampleDynamicReshape.cpp ./common/logger.cpp)
 target_link_libraries(sample_dynamic_reshape ${CUDA_LIBRARIES} ${OpenCV_LIBS} nvinfer nvonnxparser)
 
-add_executable(online_test online_test.cpp cv_ui.cpp)
-target_link_libraries(online_test ${OpenCV_LIBS})
+add_executable(online_test online_test.cpp cv_ui.cpp tracker.cpp)
+target_link_libraries(online_test ${OpenCV_LIBS} ${CUDA_LIBRARIES} ${TORCH_LIBRARIES} nvinfer)
 
 set_property(TARGET trt_infer PROPERTY CXX_STANDARD 14)
 set_property(TARGET sample_dynamic_reshape PROPERTY CXX_STANDARD 14)

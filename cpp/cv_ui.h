@@ -3,24 +3,24 @@
 
 #include <opencv2/opencv.hpp>
 
-using namespace cv;
-
 enum MODE {INIT, SELECT};
 
 class CvUI
 {
 private:
-    static MODE mode;
-    static Point tl;
-    static Point br;
-    static bool newInit;
-    Point get_tl();
+
 public:
+    static MODE mode;
+    static cv::Point tl;
+    static cv::Point br;
+    static bool newInit;
+
     CvUI();
     ~CvUI();
     static void OnMouse(int event, int x, int y, int flags, void* ustc);
-
-
+    cv::Point GetTl();
+    cv::Point GetBr();
+    cv::Rect2d GetBb();
 };
 
 #endif
