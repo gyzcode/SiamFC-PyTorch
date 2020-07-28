@@ -126,21 +126,11 @@ void Tracker::Init(const Mat& img, const Rect2d& roi)
 
 void Tracker::Update(const Mat& img, Rect2d& roi)
 {   
-    // need speed up //////////////////////////////////////////////////////////////////////////////////////////////////
-    // Tensor txs[3];
-    // Mat x;
-    // for (int i = 0; i < 3; i++) {
-    //     PreProcess(img, x, roi, m_xSize * m_scales[i], 255);
-    //     txs[i] = at::from_blob(x.data, {255, 255, 3}, torch::kUInt8).to(at::kCUDA);
-    // }
-    // Tensor tx = stack({txs[0], txs[1], txs[2]}).permute({0, 3, 1, 2}).contiguous().to(torch::kFloat32);
-    // ////////////////////////////////////////////////////////////////////////////////////////////////////
-
     Tensor txs[3];
     for (int i = 0; i < 3; i++) {
         PreProcess1(img, txs[i], roi, m_xSize * m_scales[i], 255);
     }
-    Tensor tx = stack({txs[0], txs[1], txs[2]});
+    Tensor tx = cat({txs[0], txs[1], txs[2]});
  
     mDeviceBindings[0] = tx.data_ptr();
     
@@ -160,18 +150,7 @@ void Tracker::Update(const Mat& img, Rect2d& roi)
     response[0] *= m_penalty;
     response[2] *= m_penalty;
 
-    // need speed up //////////////////////////////////////////////////////////////////////////////////////////////////
-    // peak scale
-    float maxRec = INT_MIN;
-    int scaleId = 0;
-    for(int i=0; i<3; i++){
-        float maxV = response[i].max().item().to<float>();
-        if(maxRec < maxV){
-            maxRec = maxV;
-            scaleId = i;
-        }
-    }
-    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    int scaleId = floor_divide(argmax(response) , (17*17)).item().to<int>();
 
     // upsample
     Tensor response1 = response[scaleId].unsqueeze(0);
@@ -267,7 +246,7 @@ void Tracker::PreProcess1(const Mat& src, Tensor& dst, const Rect2d& roi, int si
 
     // resize
     dst = F::interpolate(dst, F::InterpolateFuncOptions().size(vector<int64_t>{outSize, outSize}).mode(torch::kBilinear).align_corners(false));
-    dst = dst.squeeze();
+
     // dst = dst.permute({0, 2, 3, 1}).contiguous().squeeze().cpu();
     // Mat test(outSize, outSize, CV_32FC3);
     // memcpy(test.data, dst.data_ptr(), outSize * outSize * 3 * 4);

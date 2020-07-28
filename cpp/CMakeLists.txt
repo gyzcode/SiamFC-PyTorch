@@ -42,7 +42,7 @@ else(${TORCH_FOUND})
 endif(${TORCH_FOUND})
 
 #add_executable(trt_infer main.cpp common/logger.cpp)
-add_executable(trt_infer main1.cpp tracker.cpp)
+add_executable(trt_infer offline_test.cpp tracker.cpp)
 target_link_libraries(trt_infer ${OpenCV_LIBS} ${CUDA_LIBRARIES} ${TORCH_LIBRARIES} nvinfer)
 
 include_directories(./common)
