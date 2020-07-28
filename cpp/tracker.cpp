@@ -131,26 +131,28 @@ void Tracker::Update(const Mat& img, Rect2d& roi)
         PreProcess1(img, txs[i], roi, m_xSize * m_scales[i], 255);
     }
     Tensor tx = cat({txs[0], txs[1], txs[2]});
- 
     mDeviceBindings[0] = tx.data_ptr();
-    
-    TickMeter tm;
-    tm.start();
+
     // Asynchronously enqueue the inference work
     mContext->enqueueV2(mDeviceBindings.data(), m_stream, nullptr);
     // Wait for the work in the m_stream to complete
     cudaStreamSynchronize(m_stream);
-    tm.stop();
-    cout << tm.getTimeMilli() << endl;
     
+    // cudaDeviceSynchronize();
+    // TickMeter tm;
+    // tm.start();
     // cross correlation
     Tensor response = F::conv2d(m_xFeat, m_zFeat);
+    // cudaDeviceSynchronize();
+    // tm.stop();
+    // cout << tm.getTimeMilli() << endl;
 
     // penalize scale changes
     response[0] *= m_penalty;
     response[2] *= m_penalty;
 
-    int scaleId = floor_divide(argmax(response) , (17*17)).item().to<int>();
+    // find scale
+    int scaleId = floor_divide(argmax(response), (17*17)).item().to<int>();
 
     // upsample
     Tensor response1 = response[scaleId].unsqueeze(0);
@@ -246,11 +248,4 @@ void Tracker::PreProcess1(const Mat& src, Tensor& dst, const Rect2d& roi, int si
 
     // resize
     dst = F::interpolate(dst, F::InterpolateFuncOptions().size(vector<int64_t>{outSize, outSize}).mode(torch::kBilinear).align_corners(false));
-
-    // dst = dst.permute({0, 2, 3, 1}).contiguous().squeeze().cpu();
-    // Mat test(outSize, outSize, CV_32FC3);
-    // memcpy(test.data, dst.data_ptr(), outSize * outSize * 3 * 4);
-    // test.convertTo(test, CV_8UC3);
-    // imshow("test", test);
-    // waitKey();
 }
