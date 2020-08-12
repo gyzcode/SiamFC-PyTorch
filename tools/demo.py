@@ -14,6 +14,6 @@ if __name__ == '__main__':
     img_files = sorted(glob.glob(seq_dir + 'img/*.jpg'))
     anno = np.loadtxt(seq_dir + 'groundtruth_rect.txt', delimiter=',')
     
-    net_path = 'pretrained/siamfc_alexnet_e50.pth'
+    net_path = 'pretrained/siamfc_alexnet_pruning_e50.pth'
     tracker = TrackerSiamFC(net_path=net_path)
     tracker.track(img_files, anno[0], visualize=True)

@@ -24,6 +24,56 @@ from .transforms import SiamFCTransforms
 
 __all__ = ['TrackerSiamFC']
 
+################## 共有三处需要改动 #######################
+
+### 第1处. ########### 定义梯度反向传播时的钩子函数，用来将下次要裁剪的权重梯度清零（裁剪训练时pytorch版本应该为1.3.0以下，高版本pytorch的钩子函数使用方式有所不同） ############
+def hook_layers(net, ratio=0.8):
+
+    def hook_f0(module, grad_input, grad_output):
+        ch = int(grad_input[1].size(0)*ratio)
+        ch2 = int(grad_input[1].size(1)*ratio)
+        grad_weight = torch.zeros_like(grad_input[1])
+        grad_weight[0:ch, :, :, :] = grad_input[1][0:ch, :, :, :]
+        grad_bias = torch.zeros_like(grad_input[2])
+        grad_bias[0:ch] = grad_input[2][0:ch]
+    
+        return (grad_input[0], grad_weight, grad_bias)
+
+    def hook_f1(module, grad_input, grad_output):
+        ch = int(grad_input[1].size(0)*ratio)
+        ch2 = int(grad_input[1].size(1)*ratio)
+        grad_weight = torch.zeros_like(grad_input[1])
+        grad_weight[0:ch, :, :, :] = grad_input[1][0:ch, :, :, :]
+        grad_weight[:, ch2:, :, :] = 0.0
+        grad_bias = torch.zeros_like(grad_input[2])
+        grad_bias[0:ch] = grad_input[2][0:ch]
+    
+        return (grad_input[0], grad_weight, grad_bias)
+
+    def hook_f2(module, grad_input, grad_output):
+        ch = int(grad_input[2].size(0)*ratio)
+        ch2 = int(grad_input[2].size(1)*ratio)
+        grad_weight = torch.zeros_like(grad_input[2])
+        grad_weight[:, ch2:] = 0.0
+        grad_bias = torch.zeros_like(grad_input[0])
+        grad_bias[0:ch] = grad_input[0][0:ch]
+    
+        return (grad_bias, grad_input[1], grad_weight)
+        
+    layer0 = net.backbone.conv1[0]
+    layer0.register_backward_hook(hook_f0)
+    
+    layer1 = net.backbone.conv2[0]
+    layer1.register_backward_hook(hook_f1)
+
+    layer2 = net.backbone.conv3[0]
+    layer2.register_backward_hook(hook_f1)
+
+    layer3 = net.backbone.conv4[0]
+    layer3.register_backward_hook(hook_f1)
+
+    #layer4 = net.backbone.conv5[0]
+    #layer4.register_backward_hook(hook_f1)
 
 class Net(nn.Module):
 
@@ -49,11 +99,12 @@ class TrackerSiamFC(Tracker):
         self.device = torch.device('cuda:0' if self.cuda else 'cpu')
 
         # setup model
+        #### 第2处. ############ 0.64为0.8*0.8，因为一共进行两次裁剪，每次保留80%， 1.0为非衰减权重的比率，测试时不需衰减，所以为1.0 ####################
         self.net = Net(
-            backbone=AlexNetV1(),
+            backbone=AlexNetV1(.64, 1.0),
             head=SiamFC(self.cfg.out_scale))
         ops.init_weights(self.net)
-        
+
         # load checkpoint if provided
         if net_path is not None:
             self.net.load_state_dict(torch.load(
@@ -300,6 +351,65 @@ class TrackerSiamFC(Tracker):
         for epoch in range(self.cfg.epoch_num):
             # update lr at each epoch
             self.lr_scheduler.step(epoch=epoch)
+
+            #### 第3处. #################################### 训练时进行裁剪 ########################################
+            if epoch in prun_epoch:
+                rate *= 0.8
+                if epoch == max(prun_epoch):
+                    t_net = AlexNetV1(rate, 1.0)
+                else:
+                    t_net = AlexNetV1(rate, 0.8)
+                t_net_dict = t_net.state_dict()
+
+                print(t_net)
+                cout, cin, ch, cw = -1, -1, -1, -1
+                for name1, item1 in self.net.backbone.named_parameters():
+                    for name2, item2 in t_net.named_parameters():
+                        if name1 == name2:
+                            if item1.dim() > 2:
+                                if cout > 0:
+                                    t_net_dict[name2] = item1[0:item2.size(0), 0:cout, :, :]
+                                else:
+                                    t_net_dict[name2] = item1[0:item2.size(0), :, :, :]
+                                cout, cin, ch, cw = item2.size()
+
+                            elif item1.dim() > 1 and item1.dim() < 3:
+                                t_net_dict[name2] = item1[:, 0:item2.size(1)]
+                            else:
+                                if 'fc' in name2:
+                                    t_net_dict[name2] = item1[:]
+                                else:
+                                    t_net_dict[name2] = item1[0:item2.size(0)]      
+
+                t_net.load_state_dict(t_net_dict)
+                self.net = Net(
+                    backbone=t_net,
+                    head=SiamFC(self.cfg.out_scale))
+
+                self.optimizer = optim.SGD(
+                    self.net.parameters(),
+                    lr=self.cfg.initial_lr,
+                    weight_decay=self.cfg.weight_decay,
+                    momentum=self.cfg.momentum)
+
+                gamma = np.power(
+                    self.cfg.ultimate_lr / self.cfg.initial_lr,
+                    1.0 / self.cfg.epoch_num)
+                self.lr_scheduler = ExponentialLR(self.optimizer, gamma)
+
+                self.lr_scheduler.step(epoch=epoch)
+            
+                device = 'cuda' 
+                # data parallel for multiple-GPU
+                if device == 'cuda':
+                    cudnn.benchmark = True
+                self.net.to(self.device)
+
+                self.last_ep = epoch
+            
+            if epoch < max(prun_epoch):
+                hook_layers(self.net, 0.8)
+
 
             # loop over dataloader
             for it, batch in enumerate(dataloader):
