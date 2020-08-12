@@ -5,7 +5,7 @@ sys.path.append('.')
 import os
 import torch
 import torch.nn as nn
-from siamfc.backbones import AlexNetV1
+from siamfc.backbones import AlexNetV1_Test
 from siamfc.heads import SiamFC
 
 
@@ -25,19 +25,19 @@ if __name__ == '__main__':
     # setup GPU device
     device = torch.device('cuda:0')
 
-    pth_path = 'pretrained/siamfc_alexnet_e50.pth'
+    pth_path = 'pretrained/siamfc_alexnet_pruning_e50.pth'
     if os.path.exists(pth_path):
         print('Convert {} to onnx model'.format(pth_path))
         # load pth model
         net = Net(
-            backbone=AlexNetV1(),
+            backbone=AlexNetV1_Test(),
             head=SiamFC(0.001))
 
         net.load_state_dict(torch.load(pth_path, map_location=lambda storage, loc: storage))
         net = net.to(device)
 
         # convert model
-        onnx_path = 'pretrained/siamfc_alexnet_e50_dynamic.onnx'
+        onnx_path = 'pretrained/siamfc_alexnet_pruning_e50_dynamic.onnx'
         batch = 1
         width = 127
         height = 127
@@ -45,7 +45,7 @@ if __name__ == '__main__':
         input_names = ['input']
         output_names = ['output']
         dynamic_axes = {'input':{0:'batch_size', 2:'width', 3:'height'}, 'output':{0:'batch_size', 2:'width', 3:'height'}} #adding names for better debugging
-        torch.onnx.export(net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names, dynamic_axes=dynamic_axes)
+        torch.onnx.export(net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names, dynamic_axes=dynamic_axes, opset_version=11)
         print('done.')
     else:
         print("File {} dose not exist".format(pth_path))

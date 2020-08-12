@@ -6,7 +6,7 @@ using namespace cv;
 int main()
 {
     Tracker myTracker;
-    myTracker.Load("/home/gyz/workzone/siamfc-pytorch/pretrained/siamfc_alexnet_e50_dynamic.engine");
+    myTracker.Load("/home/gyz/workzone/siamfc-pytorch/pretrained/siamfc_alexnet_pruning_e50_dynamic_int8.engine");
     Mat frame;
     String fn;
     //Rect2d roi(204,150,17,50);  //Crossing

@@ -268,7 +268,7 @@ bool SampleDynamicReshape::buildPredictionEngine(const SampleUniquePtr<nvinfer1:
         sample::gLogError << "Create builder config failed." << std::endl;
         return false;
     }
-    config->setMaxWorkspaceSize(1_GiB);
+    config->setMaxWorkspaceSize(10_GiB);
     if (mParams.fp16)
     {
         config->setFlag(BuilderFlag::kFP16);
@@ -475,7 +475,7 @@ samplesCommon::OnnxSampleParams initializeSampleParams(const samplesCommon::Args
     {
         params.dataDirs = args.dataDirs;
     }
-    params.onnxFileName = "siamfc_alexnet_e50_dynamic.onnx";
+    params.onnxFileName = "siamfc_alexnet_pruning_e50_dynamic.onnx";
     params.inputTensorNames.push_back("input");
     params.outputTensorNames.push_back("output");
     params.int8 = true; //args.runInInt8;
