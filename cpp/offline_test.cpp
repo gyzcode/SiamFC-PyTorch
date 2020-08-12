@@ -9,12 +9,13 @@ int main()
     myTracker.Load("/home/gyz/workzone/siamfc-pytorch/pretrained/siamfc_alexnet_pruning_e50_dynamic_int8.engine");
     Mat frame;
     String fn;
-    //Rect2d roi(204,150,17,50);  //Crossing
-    //int numFrame = 120;
-    Rect2d roi(288,143,35,42);  //Boy
-    int numFrame = 602;
+    float timeCost = 0;
+    Rect2d roi(204,150,17,50);  //Crossing
+    int numFrame = 120;
+    //Rect2d roi(288,143,35,42);  //Boy
+    //int numFrame = 602;
     for(int i=1; i<=numFrame; i++) {
-        fn = format("/home/gyz/dataset/otb100/Boy/img/%04d.jpg", i);
+        fn = format("/home/gyz/dataset/otb100/Crossing/img/%04d.jpg", i);
         frame = imread(fn);
 
         TickMeter tm;
@@ -26,12 +27,13 @@ int main()
             myTracker.Update(frame, roi);
         }
         tm.stop();
-        cout << tm.getTimeMilli() << endl;
+        timeCost += tm.getTimeMilli();
 
-        rectangle(frame, roi, CV_RGB(255, 0, 0), 2);
-        imshow("Display", frame);
-        waitKey(1);
+        // rectangle(frame, roi, CV_RGB(255, 0, 0), 2);
+        // imshow("Display", frame);
+        // waitKey(1);
     }
+    cout << timeCost / numFrame << endl;
 
     destroyAllWindows();
 

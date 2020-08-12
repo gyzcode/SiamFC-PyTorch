@@ -9,7 +9,7 @@ int main()
     CvUI ui;
 
     Tracker myTracker;
-    myTracker.Load("/home/gyz/workzone/siamfc-pytorch/pretrained/siamfc_alexnet_e50_dynamic.engine");
+    myTracker.Load("/home/gyz/workzone/siamfc-pytorch/pretrained/siamfc_alexnet_pruning_e50_dynamic_int8.engine");
 
     namedWindow("display");
     setMouseCallback("display", ui.OnMouse);
