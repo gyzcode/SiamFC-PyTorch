@@ -37,15 +37,26 @@ if __name__ == '__main__':
         net = net.to(device)
 
         # convert model
+        # dynamic input
         onnx_path = 'pretrained/siamfc_alexnet_pruning_e50_dynamic.onnx'
-        batch = 1
-        width = 127
-        height = 127
-        dummy_input = torch.randn(batch, 3, width, height).to(device)
+        dummy_input = torch.randn(1, 3, 127, 127).to(device)
         input_names = ['input']
         output_names = ['output']
         dynamic_axes = {'input':{0:'batch_size', 2:'width', 3:'height'}, 'output':{0:'batch_size', 2:'width', 3:'height'}} #adding names for better debugging
         torch.onnx.export(net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names, dynamic_axes=dynamic_axes, opset_version=11)
-        print('done.')
+        print('dynamic input done.')
+
+        # z input
+        onnx_path = 'pretrained/siamfc_alexnet_pruning_e50_z.onnx'
+        dummy_input = torch.randn(1, 3, 127, 127).to(device)
+        torch.onnx.export(net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names, opset_version=11)
+        print('z input done.')
+
+        # x input
+        onnx_path = 'pretrained/siamfc_alexnet_pruning_e50_x.onnx'
+        dummy_input = torch.randn(3, 3, 255, 255).to(device)
+        torch.onnx.export(net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names, opset_version=11)
+        print('x input done.')
+
     else:
         print("File {} dose not exist".format(pth_path))

@@ -6,7 +6,8 @@ using namespace cv;
 int main()
 {
     Tracker myTracker;
-    myTracker.Load("/home/gyz/workzone/siamfc-pytorch/pretrained/siamfc_alexnet_pruning_e50_dynamic_int8.engine");
+    myTracker.Load("/home/gyz/workzone/siamfc-pytorch/pretrained/siamfc_alexnet_pruning_e50_x_int8.engine", 'x');
+    myTracker.Load("/home/gyz/workzone/siamfc-pytorch/pretrained/siamfc_alexnet_pruning_e50_z_int8.engine", 'z');
     Mat frame;
     String fn;
     float timeCost = 0;
@@ -29,9 +30,9 @@ int main()
         tm.stop();
         timeCost += tm.getTimeMilli();
 
-        // rectangle(frame, roi, CV_RGB(255, 0, 0), 2);
-        // imshow("Display", frame);
-        // waitKey(1);
+        rectangle(frame, roi, CV_RGB(255, 0, 0), 2);
+        imshow("Display", frame);
+        waitKey(1);
     }
     cout << timeCost / numFrame << endl;
 

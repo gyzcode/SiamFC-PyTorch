@@ -21,13 +21,8 @@ using namespace std;
 class /*__declspec(dllexport)*/ Tracker
 {
 private:
-    ICudaEngine* mEngine;
-    IExecutionContext* mContext;
-
-    // void* m_inputHostBuffer;
-    // void* m_inputDeviceBuffer;
-    // void* m_outputHostBuffer;
-    // void* m_outputDeviceBuffer;
+    IExecutionContext* mContextZ;
+    IExecutionContext* mContextX;
 
     int outputSize;
     int outputByteSize;
@@ -41,7 +36,6 @@ private:
     float scale, m_zSize, m_xSize;
     float m_scales[3];
     float m_penalty;
-    // Mat hanming_window;
     Tensor mHannWindow;
 
     void PreProcess(const Mat& src, Tensor& dst, const Rect2d& roi, int size, int outSize);
@@ -49,7 +43,7 @@ private:
 public:
     Tracker();
     ~Tracker();
-    void Load(const String& fn);
+    void Load(const String& fn, const char& flag);
     void Init(const Mat& img, const Rect2d& roi);
     void Update(const Mat& img, Rect2d& roi);
 };

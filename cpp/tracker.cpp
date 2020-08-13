@@ -60,8 +60,10 @@ Tracker::~Tracker()
 }
 
 
-void Tracker::Load(const String& fn)
+void Tracker::Load(const String& fn, const char& flag)
 {
+    ICudaEngine* engine;
+
     size_t size{ 0 };
     vector<char> trtModelStream_;
     ifstream file(fn.c_str(), ios::binary);
@@ -78,14 +80,20 @@ void Tracker::Load(const String& fn)
     //cout << "size" << size;
     IRuntime* runtime = createInferRuntime(gLogger);
     assert(runtime != nullptr);
-    mEngine = runtime->deserializeCudaEngine(trtModelStream_.data(), size, nullptr);
-    mContext = mEngine->createExecutionContext();
 
-    // deal with first run slow issue
-    Mat tmp(100, 100, CV_8UC3);
-    Rect2d roi(40, 40, 20, 20);
-    Init(tmp, roi);
-    Update(tmp, roi);
+    engine = runtime->deserializeCudaEngine(trtModelStream_.data(), size, nullptr);
+    if(flag == 'x'){
+        mContextX = engine->createExecutionContext();
+    }
+    else if(flag == 'z'){
+        mContextZ = engine->createExecutionContext();
+    }
+
+    // // deal with first run slow issue
+    // Mat tmp(100, 100, CV_8UC3);
+    // Rect2d roi(40, 40, 20, 20);
+    // Init(tmp, roi);
+    // Update(tmp, roi);
 }
 
 
@@ -101,22 +109,22 @@ void Tracker::Init(const Mat& img, const Rect2d& roi)
     PreProcess(img, tz, roi, m_zSize, 127);
 
     // allocate buffers
-    Dims inputDims = mEngine->getProfileDimensions(0, 0, OptProfileSelector::kMIN);
-    mContext->setBindingDimensions(0, inputDims);
-    Dims outputDims = mContext->getBindingDimensions(1);
+    // Dims inputDims = mEngineZ->getProfileDimensions(0, 0, OptProfileSelector::kMIN);
+    // mContextZ->setBindingDimensions(0, inputDims);
+    // Dims outputDims = mContextZ->getBindingDimensions(1);
  
     mDeviceBindings.clear();
     mDeviceBindings.emplace_back(tz.data_ptr());
     mDeviceBindings.emplace_back(m_zFeat.data_ptr());
 
     // Asynchronously enqueue the inference work
-    mContext->enqueueV2(mDeviceBindings.data(), m_stream, nullptr);
+    mContextZ->enqueueV2(mDeviceBindings.data(), m_stream, nullptr);
     // Wait for the work in the m_stream to complete
     cudaStreamSynchronize(m_stream);
 
-    inputDims = mEngine->getProfileDimensions(0, 0, OptProfileSelector::kMAX);
-    mContext->setBindingDimensions(0, inputDims);
-    outputDims = mContext->getBindingDimensions(1);
+    // inputDims = mEngine->getProfileDimensions(0, 0, OptProfileSelector::kMAX);
+    // mContext->setBindingDimensions(0, inputDims);
+    // outputDims = mContext->getBindingDimensions(1);
 
     mDeviceBindings[1] = m_xFeat.data_ptr();
 }
@@ -132,7 +140,7 @@ void Tracker::Update(const Mat& img, Rect2d& roi)
     mDeviceBindings[0] = tx.data_ptr();
 
     // Asynchronously enqueue the inference work
-    mContext->enqueueV2(mDeviceBindings.data(), m_stream, nullptr);
+    mContextX->enqueueV2(mDeviceBindings.data(), m_stream, nullptr);
     // Wait for the work in the m_stream to complete
     cudaStreamSynchronize(m_stream);
     
