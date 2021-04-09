@@ -11,12 +11,18 @@ int main()
     Mat frame;
     String fn;
     float timeCost = 0;
-    Rect2d roi(204,150,17,50);  //Crossing
-    int numFrame = 120;
-    //Rect2d roi(288,143,35,42);  //Boy
-    //int numFrame = 602;
+    // Rect2d roi(204,150,17,50);  //Crossing
+    // int numFrame = 120;
+    Rect2d roi(288,143,35,42);  //Boy
+    int numFrame = 602;
+
+    // deal with first run slow issue
+    frame = imread("/home/gyz/dataset/otb100/Boy/img/0001.jpg");
+    myTracker.Init(frame, roi);
+    myTracker.Update(frame, roi);
+
     for(int i=1; i<=numFrame; i++) {
-        fn = format("/home/gyz/dataset/otb100/Crossing/img/%04d.jpg", i);
+        fn = format("/home/gyz/dataset/otb100/Boy/img/%04d.jpg", i);
         frame = imread(fn);
 
         TickMeter tm;

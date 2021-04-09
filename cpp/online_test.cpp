@@ -16,8 +16,12 @@ int main()
     setMouseCallback("display", ui.OnMouse);
 
     VideoCapture cap(0);
-    Mat frame;
-    Rect2d roi;
+    Mat frame(100, 100, CV_8UC3);
+    Rect2d roi(40, 40, 20, 20);
+    // deal with first run slow issue
+    myTracker.Init(frame, roi);
+    myTracker.Update(frame, roi);
+
     bool running = true;
     bool tracking = false;
     while (running) {
