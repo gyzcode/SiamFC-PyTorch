@@ -3,4 +3,6 @@
 
 # trtexec --onnx=pretrained/siamfc_alexnet_pruning_e50_z.onnx --workspace=1024 --fp16 --int8 --calib=pretrained/CalibrationTableSiamfc_pruning --saveEngine=pretrained/siamfc_alexnet_pruning_e50_z_int8.engine
 
-trtexec --onnx=pretrained/siamfc_alexnet_pruning_e50_x.onnx --maxBatch=3 --workspace=1024 --fp16 --int8 --calib=pretrained/CalibrationTableSiamfc_pruning --saveEngine=pretrained/siamfc_alexnet_pruning_e50_x_int8.engine
+# trtexec --onnx=pretrained/siamfc_alexnet_pruning_e50_x.onnx --maxBatch=3 --workspace=1024 --fp16 --int8 --calib=pretrained/CalibrationTableSiamfc_pruning --saveEngine=pretrained/siamfc_alexnet_pruning_e50_x_int8.engine
+
+# trtexec --onnx=pretrained/siamfc_alexnet_pruning_e50_head.onnx --explicitBatch --shapes='input1':1x256x6x6,'input2':3x256x22x22 --optShapes='input1':1x256x6x6,'input2':3x256x22x22 --workspace=1024 --fp16 --int8 --calib=pretrained/CalibrationTableSiamfc_pruning --saveEngine=pretrained/siamfc_alexnet_pruning_e50_head.engine

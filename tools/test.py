@@ -9,7 +9,7 @@ from siamfc import TrackerSiamFC
 
 
 if __name__ == '__main__':
-    net_path = 'pretrained/siamfc_alexnet_e50.pth'
+    net_path = 'pretrained/siamfc_alexnet_pruning_e50.pth'
     tracker = TrackerSiamFC(net_path=net_path)
 
     root_dir = os.path.expanduser('~/dataset/otb100')
