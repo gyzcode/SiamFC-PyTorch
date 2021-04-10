@@ -5,7 +5,8 @@ sys.path.append('.')
 import os
 import torch
 import torch.nn as nn
-from siamfc.backbones import AlexNetV1_Test
+# from siamfc.backbones import AlexNetV1_Test   # for pruning
+from siamfc.backbones import AlexNetV1
 from siamfc.heads import SiamFC
 
 
@@ -25,12 +26,13 @@ if __name__ == '__main__':
     # setup GPU device
     device = torch.device('cuda:0')
 
-    pth_path = 'pretrained/siamfc_alexnet_pruning_e50.pth'
+    pth_path = 'pretrained/siamfc_alexnet_e50.pth'
     if os.path.exists(pth_path):
         print('Convert {} to onnx model'.format(pth_path))
         # load pth model
         net = Net(
-            backbone=AlexNetV1_Test(),
+            # backbone=AlexNetV1_Test(),    # for pruning
+            backbone=AlexNetV1(),
             head=SiamFC(0.001))
 
         net.load_state_dict(torch.load(pth_path, map_location=lambda storage, loc: storage))
@@ -64,15 +66,6 @@ if __name__ == '__main__':
             output_names = ['output']
             torch.onnx.export(net.backbone, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names, opset_version=11)
             print('x input done.')
-
-        # head
-        onnx_path = 'pretrained/siamfc_alexnet_pruning_e50_head.onnx'
-        if not os.path.exists(onnx_path):
-            dummy_input = (torch.randn(1, 256, 6, 6).to(device), torch.randn(3, 256, 22, 22).to(device))
-            input_names = ['input1', 'input2']
-            output_names = ['output']
-            torch.onnx.export(net.head, dummy_input, onnx_path, verbose=True, input_names=input_names, output_names=output_names, opset_version=11)
-            print('head done.')
 
     else:
         print("File {} dose not exist".format(pth_path))
